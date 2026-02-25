@@ -1,6 +1,7 @@
 import express from 'express';
 import sqlite3 from 'sqlite3';
 import cors from 'cors';
+import compression from 'compression';
 import bodyParser from 'body-parser';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
@@ -8,7 +9,11 @@ import bcrypt from 'bcrypt';
 
 const app = express();
 const PORT = 3001;
-const saltRounds = 10; // For bcrypt
+const saltRounds = 10;
+
+app.use(compression({ level: 6, threshold: 1024 }));
+app.use(bodyParser.json({ limit: '50mb' }));
+app.use(cors());
 
 // ===== SECURITY =====
 const validateInput = (val, type = 'string', min = 0, max = Infinity) => {
@@ -24,7 +29,7 @@ const validateInput = (val, type = 'string', min = 0, max = Infinity) => {
     return val;
 };
 
-const reqLog = {}; // Rate limiting
+const reqLog = {};
 const checkRateLimit = (ip) => {
     const now = Date.now();
     if (!reqLog[ip]) reqLog[ip] = [];
@@ -40,138 +45,153 @@ app.use((req, res, next) => {
     next();
 });
 
-app.use(bodyParser.json({ limit: '50mb' }));
-app.use(cors());
+// ===== CACHE =====
+const dataCache = new Map();
+const CACHE_TTL_MS = 60000;
 
-// Memory cache for frequently accessed data
-const cache = {
-    regions: null,
-    authors: null,
-    news: null,
-    widgets: null,
-    buttons: null,
-    popups: null,
-    pages: null,
-    lastUpdate: {}
+const getCached = (key) => {
+    const item = dataCache.get(key);
+    if (!item) return null;
+    if (Date.now() - item.time > CACHE_TTL_MS) {
+        dataCache.delete(key);
+        return null;
+    }
+    return item.data;
 };
 
-// Cache TTL in milliseconds (5 minutes)
-const CACHE_TTL = 5 * 60 * 1000;
+const setCached = (key, data) => {
+    dataCache.set(key, { data, time: Date.now() });
+};
 
 // Путь к базе
 const dbPath = join(dirname(fileURLToPath(import.meta.url)), 'database.sqlite');
 const db = new sqlite3.Database(dbPath, (err) => {
-    if (err) { console.error("❌ DB Error:", err); } 
-    else { console.log("✅ DB Connected."); initDb(); }
+    if (err) { 
+        console.error("❌ DB Error:", err); 
+    } else { 
+        console.log("✅ DB Connected.");
+        initDb();
+    }
 });
 
 function initDb() {
     db.configure('busyTimeout', 5000);
-    db.serialize(() => {
-        // 1. ТАБЛИЦЫ
-        const schema = [
-            `CREATE TABLE IF NOT EXISTS regions (id INTEGER PRIMARY KEY, name TEXT, lat REAL, lng REAL, zoom INTEGER, current_index REAL)`,
-            `CREATE TABLE IF NOT EXISTS history (region_id INTEGER, date TEXT, value REAL)`,
-            `CREATE TABLE IF NOT EXISTS news (id INTEGER PRIMARY KEY, author_id INTEGER, text TEXT, image TEXT, date TEXT, btn_text TEXT, btn_link TEXT, tags TEXT, is_highlighted INTEGER)`,
-            `CREATE TABLE IF NOT EXISTS authors (id INTEGER PRIMARY KEY, name TEXT, handle TEXT, avatar TEXT, bio TEXT, is_verified INTEGER, password TEXT, access_level INTEGER DEFAULT 0, failed_login_attempts INTEGER DEFAULT 0, lock_expires_at DATETIME)`,
-            `CREATE TABLE IF NOT EXISTS widgets (id INTEGER PRIMARY KEY, type TEXT, title TEXT, text TEXT, color TEXT, icon TEXT, link TEXT, image TEXT, is_wide INTEGER, sub_widgets TEXT)`,
-            `CREATE TABLE IF NOT EXISTS buttons (id INTEGER PRIMARY KEY, label TEXT, icon TEXT, link TEXT)`,
-            `CREATE TABLE IF NOT EXISTS popups (id INTEGER PRIMARY KEY, title TEXT, text TEXT, image TEXT)`,
-            `CREATE TABLE IF NOT EXISTS pages (id INTEGER PRIMARY KEY, slug TEXT, title TEXT, content TEXT, is_hidden INTEGER)`,
-            `CREATE TABLE IF NOT EXISTS markers (id INTEGER PRIMARY KEY, lat REAL, lng REAL, desc TEXT)`,
-            `CREATE TABLE IF NOT EXISTS notifications (id INTEGER PRIMARY KEY, title TEXT, body TEXT, type TEXT)`,
-            `CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)`,
-            `CREATE TABLE IF NOT EXISTS reports (id INTEGER PRIMARY KEY, text TEXT, image TEXT, created_at TEXT)`
-        ];
-        schema.forEach(sql => db.run(sql));
-        
-        // Create indexes for performance
-        const indexes = [
-            "CREATE INDEX IF NOT EXISTS idx_news_author ON news(author_id)",
-            "CREATE INDEX IF NOT EXISTS idx_history_region ON history(region_id, date)",
-            "CREATE INDEX IF NOT EXISTS idx_authors_id ON authors(id)",
-            "CREATE INDEX IF NOT EXISTS idx_pages_slug ON pages(slug)"
-        ];
-        indexes.forEach(sql => db.run(sql));
+    
+    // 1. ТАБЛИЦЫ - создаём их сразу
+    const schema = [
+        `CREATE TABLE IF NOT EXISTS regions (id INTEGER PRIMARY KEY, name TEXT, lat REAL, lng REAL, zoom INTEGER, current_index REAL)`,
+        `CREATE TABLE IF NOT EXISTS history (region_id INTEGER, date TEXT, value REAL)`,
+        `CREATE TABLE IF NOT EXISTS news (id INTEGER PRIMARY KEY, author_id INTEGER, text TEXT, image TEXT, date TEXT, btn_text TEXT, btn_link TEXT, tags TEXT, is_highlighted INTEGER)`,
+        `CREATE TABLE IF NOT EXISTS authors (id INTEGER PRIMARY KEY, name TEXT, handle TEXT, avatar TEXT, bio TEXT, is_verified INTEGER, password TEXT, access_level INTEGER DEFAULT 0, failed_login_attempts INTEGER DEFAULT 0, lock_expires_at DATETIME)`,
+        `CREATE TABLE IF NOT EXISTS widgets (id INTEGER PRIMARY KEY, type TEXT, title TEXT, text TEXT, color TEXT, icon TEXT, link TEXT, image TEXT, is_wide INTEGER, sub_widgets TEXT)`,
+        `CREATE TABLE IF NOT EXISTS buttons (id INTEGER PRIMARY KEY, label TEXT, icon TEXT, link TEXT)`,
+        `CREATE TABLE IF NOT EXISTS popups (id INTEGER PRIMARY KEY, title TEXT, text TEXT, image TEXT)`,
+        `CREATE TABLE IF NOT EXISTS pages (id INTEGER PRIMARY KEY, slug TEXT, title TEXT, content TEXT, is_hidden INTEGER)`,
+        `CREATE TABLE IF NOT EXISTS markers (id INTEGER PRIMARY KEY, lat REAL, lng REAL, desc TEXT)`,
+        `CREATE TABLE IF NOT EXISTS notifications (id INTEGER PRIMARY KEY, title TEXT, body TEXT, type TEXT)`,
+        `CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)`,
+        `CREATE TABLE IF NOT EXISTS reports (id INTEGER PRIMARY KEY, text TEXT, image TEXT, created_at TEXT)`
+    ];
+    schema.forEach(sql => db.run(sql));
+    
+    // Create indexes for performance
+    const indexes = [
+        "CREATE INDEX IF NOT EXISTS idx_news_author ON news(author_id)",
+        "CREATE INDEX IF NOT EXISTS idx_history_region ON history(region_id, date)",
+        "CREATE INDEX IF NOT EXISTS idx_authors_id ON authors(id)",
+        "CREATE INDEX IF NOT EXISTS idx_pages_slug ON pages(slug)"
+    ];
+    indexes.forEach(sql => db.run(sql));
 
-        // 2. НАПОЛНЕНИЕ (SEEDING)
-        db.get("SELECT count(*) as c FROM regions", (e,r) => {
-            if(r && r.c === 0) {
-                console.log("🌱 Database is empty. Seeding...");
-                
-                db.serialize(() => {
-                    // Регионы
-                    const stmt = db.prepare("INSERT INTO regions (name, lat, lng, zoom, current_index) VALUES (?,?,?,?,?)");
-                    stmt.run('Москва', 55.75, 37.61, 11, 3.5);
-                    stmt.run('Санкт-Петербург', 59.93, 30.33, 11, 8.0);
-                    stmt.finalize();
+    // 2. НАПОЛНЕНИЕ (SEEDING) - в фоне, не блокируя сервер
+    db.get("SELECT count(*) as c FROM regions", (e,r) => {
+        if(r && r.c === 0) {
+            console.log("🌱 Database is empty. Seeding...");
+            
+            // Регионы
+            const stmt = db.prepare("INSERT INTO regions (name, lat, lng, zoom, current_index) VALUES (?,?,?,?,?)");
+            stmt.run('Москва', 55.75, 37.61, 11, 3.5);
+            stmt.run('Санкт-Петербург', 59.93, 30.33, 11, 8.0);
+            stmt.finalize();
 
-                    // История (График)
-                    const hist = db.prepare("INSERT INTO history (region_id, date, value) VALUES (?,?,?)");
-                    const today = new Date();
-                    for(let i=180; i>=0; i--) {
-                        const d = new Date(today);
-                        d.setDate(d.getDate() - i);
-                        hist.run(1, d.toISOString().split('T')[0], (3 + Math.sin(i/10)).toFixed(2));
-                        hist.run(2, d.toISOString().split('T')[0], (7 + Math.cos(i/10)).toFixed(2));
-                    }
-                    hist.finalize();
-
-                    // Автор
-                    db.run("INSERT INTO authors (name, handle, avatar, bio, is_verified) VALUES (?,?,?,?,?)", ['Admin', 'admin', 'https://api.dicebear.com/7.x/avataaars/svg?seed=Admin', 'System Admin', 1], function() {
-                        console.log("✅ Author 'Admin' created with ID:", this.lastID);
-                    });
-                    
-                    // Новости
-                    db.run("INSERT INTO news (author_id, text, date, tags, is_highlighted) VALUES (?,?,?,?,?)", [1, 'Система запущена.', new Date().toISOString(), 'info', 1], function() {
-                        console.log("✅ News created with ID:", this.lastID);
-                    });
-
-                    // Виджеты и Кнопки
-                    db.run("INSERT INTO widgets (type, title, text, color, icon, is_wide) VALUES (?,?,?,?,?,?)", ['clock', 'Время', '', 'blue', 'Clock', 0]);
-                    db.run("INSERT INTO buttons (label, icon, link) VALUES (?,?,?)", ['Help', 'Zap', 'popup:1']);
-                    db.run("INSERT INTO popups (title, text) VALUES (?,?)", ['Info', 'Test Popup']);
-
-                    console.log("✅ Seeding completed.");
-                });
-            } else {
-                console.log("✅ Database already has data (regions count:", r?.c, ")");
+            // История (График)
+            const hist = db.prepare("INSERT INTO history (region_id, date, value) VALUES (?,?,?)");
+            const today = new Date();
+            for(let i=180; i>=0; i--) {
+                const d = new Date(today);
+                d.setDate(d.getDate() - i);
+                hist.run(1, d.toISOString().split('T')[0], (3 + Math.sin(i/10)).toFixed(2));
+                hist.run(2, d.toISOString().split('T')[0], (7 + Math.cos(i/10)).toFixed(2));
             }
-        });
+            hist.finalize();
+
+            // Автор
+            db.run("INSERT INTO authors (name, handle, avatar, bio, is_verified) VALUES (?,?,?,?,?)", ['Admin', 'admin', 'https://api.dicebear.com/7.x/avataaars/svg?seed=Admin', 'System Admin', 1], function() {
+                console.log("✅ Author 'Admin' created with ID:", this.lastID);
+            });
+            
+            // Новости
+            db.run("INSERT INTO news (author_id, text, date, tags, is_highlighted) VALUES (?,?,?,?,?)", [1, 'Система запущена.', new Date().toISOString(), 'info', 1], function() {
+                console.log("✅ News created with ID:", this.lastID);
+            });
+
+            // Виджеты и Кнопки
+            db.run("INSERT INTO widgets (type, title, text, color, icon, is_wide) VALUES (?,?,?,?,?,?)", ['clock', 'Время', '', 'blue', 'Clock', 0]);
+            db.run("INSERT INTO buttons (label, icon, link) VALUES (?,?,?)", ['Help', 'Zap', 'popup:1']);
+            db.run("INSERT INTO popups (title, text) VALUES (?,?)", ['Info', 'Test Popup']);
+
+            console.log("✅ Seeding completed.");
+        } else {
+            console.log("✅ Database already has data (regions count:", r?.c, ")");
+        }
     });
 }
 
-// --- CACHE HELPERS ---
-const isCacheValid = (key) => cache.lastUpdate[key] && (Date.now() - cache.lastUpdate[key] < CACHE_TTL);
-const setCache = (key, value) => { cache[key] = value; cache.lastUpdate[key] = Date.now(); };
-
-// --- API ROUTES --
-
+// --- API ROUTES HELPER ---
 const get = (sql, cacheKey) => (req, res) => {
-    if (cacheKey && isCacheValid(cacheKey)) {
-        return res.json(cache[cacheKey] || []);
+    if (cacheKey) {
+        const cached = getCached(cacheKey);
+        if (cached) return res.json(cached);
     }
-    db.all(sql, (e,r) => {
-        const result = r || [];
-        if (cacheKey) setCache(cacheKey, result);
-        res.json(result);
+    db.all(sql, (err, rows) => {
+        const data = rows || [];
+        if (cacheKey) setCached(cacheKey, data);
+        res.json(data);
     });
 };
 
+// --- API ROUTES --
+
 // READ
-app.get('/api/regions', get("SELECT * FROM regions", 'regions'));
-app.get('/api/news', get("SELECT news.*, authors.name, authors.handle, authors.avatar, authors.is_verified FROM news LEFT JOIN authors ON news.author_id = authors.id ORDER BY news.id DESC", 'news'));
-app.get('/api/widgets', get("SELECT * FROM widgets", 'widgets'));
-app.get('/api/buttons', get("SELECT * FROM buttons", 'buttons'));
-app.get('/api/popups', get("SELECT * FROM popups", 'popups'));
-app.get('/api/pages', get("SELECT * FROM pages", 'pages'));
+app.get('/api/regions', (req, res) => {
+    const cacheKey = 'regions_list';
+    const cached = getCached(cacheKey);
+    if (cached) return res.json(cached);
+    
+    db.all("SELECT id, name, lat, lng, zoom, current_index FROM regions", (err, rows) => {
+        const data = rows || [];
+        setCached(cacheKey, data);
+        res.json(data);
+    });
+});
+app.get('/api/news', get("SELECT news.id, news.author_id, news.text, news.image, news.date, news.btn_text, news.btn_link, authors.name, authors.handle, authors.avatar, authors.is_verified FROM news LEFT JOIN authors ON news.author_id = authors.id ORDER BY news.id DESC LIMIT 50", 'news'));
+app.get('/api/widgets', get("SELECT id, type, title, text, color, icon, link, image, is_wide FROM widgets LIMIT 100", 'widgets'));
+app.get('/api/buttons', get("SELECT * FROM buttons LIMIT 50", 'buttons'));
+app.get('/api/popups', get("SELECT * FROM popups LIMIT 50", 'popups'));
+app.get('/api/pages', get("SELECT id, slug, title, is_hidden FROM pages WHERE is_hidden=0 LIMIT 50", 'pages'));
 app.get('/api/markers', get("SELECT * FROM markers"));
 app.get('/api/authors', (req, res) => {
+    const cacheKey = 'authors_list';
+    const cached = getCached(cacheKey);
+    if (cached) return res.json(cached);
+    
     console.log("📍 GET /api/authors called");
-    db.all("SELECT id, name, handle, avatar, bio, is_verified FROM authors", (err, rows) => {
-        console.log("  Authors from DB:", rows?.length || 0, rows || []);
+    db.all("SELECT id, name, handle, avatar, bio, is_verified FROM authors LIMIT 100", (err, rows) => {
+        console.log("  Authors from DB:", rows?.length || 0);
         if(err) console.error("  ERROR:", err);
-        res.json(rows || []);
+        const data = rows || [];
+        setCached(cacheKey, data);
+        res.json(data);
     });
 });
 app.get('/api/settings', get("SELECT * FROM settings"));
@@ -183,16 +203,107 @@ app.get('/api/authors/:id', (req, res) => {
 });
 
 app.get('/api/region_data/:id', (req, res) => {
-    db.get("SELECT * FROM regions WHERE id=?", [req.params.id], (e, region) => {
-        if(!region) return res.json({region: null, history: []});
-        db.all("SELECT * FROM history WHERE region_id=? ORDER BY date ASC", [req.params.id], (e2, history) => {
-            res.json({ region, history: history||[] });
+    try {
+        const regionId = validateInput(req.params.id, 'number', 1, 10000);
+        const cacheKey = `region_${regionId}`;
+        
+        // Try cache first
+        const cached = getCached(cacheKey);
+        if (cached) {
+            return res.json(cached);
+        }
+        
+        // Query database with optimized select
+        db.get("SELECT id, current_index FROM regions WHERE id=?", [regionId], (e, region) => {
+            if (e || !region) return res.json({region: null, history: []});
+            
+            // Use LIMIT for large datasets
+            db.all("SELECT date, value FROM history WHERE region_id=? ORDER BY date ASC LIMIT 365", [regionId], (e2, history) => {
+                const data = { region, history: history || [] };
+                setCached(cacheKey, data);
+                res.json(data);
+            });
         });
-    });
+    } catch(e) {
+        res.status(400).json({error: e.message});
+    }
 });
 
 app.get('/api/notifications/poll', (req, res) => {
     db.all("SELECT * FROM notifications WHERE id > ? ORDER BY id DESC LIMIT 1", [req.query.last_id||0], (e,r)=>res.json(r||[]));
+});
+
+// WIDGETS
+app.post('/api/widgets', (req,res) => {
+    const { type, title, text, color, icon, is_wide } = req.body;
+    const sql = "INSERT INTO widgets (type, title, text, color, icon, is_wide) VALUES (?,?,?,?,?,?)";
+    db.run(sql, [type, title, text, color, icon, is_wide ? 1 : 0], function() {
+        dataCache.delete('widgets');
+        res.json({ok:true, id:this.lastID});
+    });
+});
+
+app.delete('/api/widgets/:id', (req,res) => {
+    db.run("DELETE FROM widgets WHERE id=?", [req.params.id], ()=> {
+        dataCache.delete('widgets');
+        res.json({ok:true});
+    });
+});
+
+// FORECASTS
+app.get('/api/forecasts', (req, res) => {
+    const cacheKey = 'forecasts';
+    const cached = getCached(cacheKey);
+    if (cached) return res.json(cached);
+    
+    db.get("SELECT value FROM settings WHERE key='forecasts'", (err, row) => {
+        if (err) {
+            console.error('DB Error reading forecasts:', err);
+            const defaults = [
+                { day: 'ПН', risk: 45, label: 'Низкий', icon: '✅' },
+                { day: 'ВТ', risk: 62, label: 'Средний', icon: '⚠️' },
+                { day: 'СР', risk: 78, label: 'Высокий', icon: '⛔' },
+                { day: 'ЧТ', risk: 85, label: 'Критический', icon: '🔴' },
+                { day: 'ПТ', risk: 55, label: 'Средний', icon: '⚠️' },
+                { day: 'СБ', risk: 30, label: 'Низкий', icon: '✅' },
+                { day: 'ВС', risk: 20, label: 'Минимальный', icon: '✅' }
+            ];
+            setCached(cacheKey, defaults);
+            return res.json(defaults);
+        }
+        if (row && row.value) {
+            try {
+                const data = JSON.parse(row.value);
+                setCached(cacheKey, data);
+                return res.json(data);
+            } catch (e) {
+                console.error('JSON parse error:', e);
+            }
+        }
+        const defaults = [
+            { day: 'ПН', risk: 45, label: 'Низкий', icon: '✅' },
+            { day: 'ВТ', risk: 62, label: 'Средний', icon: '⚠️' },
+            { day: 'СР', risk: 78, label: 'Высокий', icon: '⛔' },
+            { day: 'ЧТ', risk: 85, label: 'Критический', icon: '🔴' },
+            { day: 'ПТ', risk: 55, label: 'Средний', icon: '⚠️' },
+            { day: 'СБ', risk: 30, label: 'Низкий', icon: '✅' },
+            { day: 'ВС', risk: 20, label: 'Минимальный', icon: '✅' }
+        ];
+        setCached(cacheKey, defaults);
+        res.json(defaults);
+    });
+});
+
+app.post('/api/forecasts', (req, res) => {
+    const data = JSON.stringify(req.body);
+    dataCache.delete('forecasts');
+    db.run("INSERT OR REPLACE INTO settings (key, value) VALUES ('forecasts', ?)", [data], (err) => {
+        if (err) {
+            console.error('DB Error saving forecasts:', err);
+            return res.status(500).json({ok:false, error:err.message});
+        }
+        res.json({ok:true});
+    });
 });
 
 // DEBUG - Check all data in DB
@@ -346,7 +457,6 @@ app.post('/api/author/login', (req, res) => {
 });
 
 // --- ENDPOINTS ---
-app.get('/api/markers', get("SELECT * FROM markers"));
 app.post('/api/markers', (req,res) => db.run("INSERT INTO markers (lat,lng,desc) VALUES (?,?,?)", [req.body.lat,req.body.lng,req.body.desc], ()=>res.json({ok:true})));
 app.delete('/api/markers/:id', (req,res) => db.run("DELETE FROM markers WHERE id=?", [req.params.id], ()=>res.json({ok:true})));
 

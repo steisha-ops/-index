@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { api } from '../lib/api';
-import { TrendingUp, Save, Plus, Trash2, RefreshCw, Calendar } from 'lucide-react';
+import { TrendingUp, Save, Plus, Trash2, RefreshCw, Calendar, Box } from 'lucide-react';
 
 const Tma = () => {
     const [activeTab, setActiveTab] = useState('graphs');
@@ -12,9 +12,23 @@ const Tma = () => {
     const [newDate, setNewDate] = useState({ date: '', value: '3.0' });
     const [loading, setLoading] = useState(false);
     const [message, setMessage] = useState('');
+    const [widgets, setWidgets] = useState([]);
+    const [newWidget, setNewWidget] = useState({ type: 'info', title: '', text: '', color: 'blue', icon: 'Box', is_wide: 0 });
+    const [forecasts, setForecasts] = useState([
+        { day: 'ПН', risk: 45, label: 'Низкий', icon: '✅' },
+        { day: 'ВТ', risk: 62, label: 'Средний', icon: '⚠️' },
+        { day: 'СР', risk: 78, label: 'Высокий', icon: '⛔' },
+        { day: 'ЧТ', risk: 85, label: 'Критический', icon: '🔴' },
+        { day: 'ПТ', risk: 55, label: 'Средний', icon: '⚠️' },
+        { day: 'СБ', risk: 30, label: 'Низкий', icon: '✅' },
+        { day: 'ВС', risk: 20, label: 'Минимальный', icon: '✅' },
+    ]);
+    const [editingForecast, setEditingForecast] = useState(null);
 
     useEffect(() => {
         loadRegions();
+        loadWidgets();
+        loadForecasts();
     }, []);
 
     const loadRegions = async () => {
@@ -89,6 +103,69 @@ const Tma = () => {
         setLoading(false);
     };
 
+    const loadWidgets = async () => {
+        const w = await api.getWidgets() || [];
+        setWidgets(w);
+    };
+
+    const loadForecasts = async () => {
+        const f = await api.getForecasts() || [];
+        if (Array.isArray(f) && f.length > 0) {
+            setForecasts(f);
+        }
+    };
+
+    const handleAddWidget = async () => {
+        if (!newWidget.title) {
+            setMessage('❌ Заполни название');
+            setTimeout(() => setMessage(''), 2000);
+            return;
+        }
+        setLoading(true);
+        await api.createWidget(newWidget);
+        setNewWidget({ type: 'info', title: '', text: '', color: 'blue', icon: 'Box', is_wide: 0 });
+        await loadWidgets();
+        setMessage('✅ Виджет добавлен');
+        setTimeout(() => setMessage(''), 2000);
+        setLoading(false);
+    };
+
+    const handleDeleteWidget = async (id) => {
+        if (!confirm('Удалить виджет?')) return;
+        setLoading(true);
+        await api.deleteWidget(id);
+        await loadWidgets();
+        setMessage('✅ Виджет удалён');
+        setTimeout(() => setMessage(''), 2000);
+        setLoading(false);
+    };
+
+    const handleSaveForecasts = async () => {
+        setLoading(true);
+        setMessage('⏳ Сохранение...');
+        try {
+            const result = await api.saveForecasts(forecasts);
+            if (result.ok) {
+                setMessage('✅ Прогнозы сохранены');
+                // Инвалидируем кеш прогнозов в localStorage
+                localStorage.removeItem('forecasts_cache');
+                localStorage.removeItem('forecasts_cache_time');
+            } else {
+                setMessage('❌ Ошибка сохранения');
+            }
+        } catch (e) {
+            setMessage('❌ Ошибка сохранения');
+        }
+        setTimeout(() => setMessage(''), 2000);
+        setLoading(false);
+    };
+
+    const handleUpdateForecast = (index, field, value) => {
+        const updated = [...forecasts];
+        updated[index] = { ...updated[index], [field]: isNaN(value) ? value : Number(value) };
+        setForecasts(updated);
+    };
+
     const currentRegionName = regions.find(r => r.id == selectedRegionId)?.name || '...';
 
     return (
@@ -100,6 +177,8 @@ const Tma = () => {
             
             <div className="flex gap-2 p-3 bg-[#1a1a1a] rounded-lg border border-[#333]">
                 <button className={`py-2 px-4 rounded font-bold text-sm transition ${activeTab === 'graphs' ? 'bg-blue-600 text-white' : 'bg-[#222] text-gray-400 hover:text-white'}`} onClick={() => setActiveTab('graphs')}>📊 Графики</button>
+                <button className={`py-2 px-4 rounded font-bold text-sm transition ${activeTab === 'forecasts' ? 'bg-blue-600 text-white' : 'bg-[#222] text-gray-400 hover:text-white'}`} onClick={() => setActiveTab('forecasts')}>🎖️ Прогнозы</button>
+                <button className={`py-2 px-4 rounded font-bold text-sm transition ${activeTab === 'widgets' ? 'bg-blue-600 text-white' : 'bg-[#222] text-gray-400 hover:text-white'}`} onClick={() => setActiveTab('widgets')}>📦 Виджеты</button>
                 <button className={`py-2 px-4 rounded font-bold text-sm transition ${activeTab === 'news' ? 'bg-blue-600 text-white' : 'bg-[#222] text-gray-400 hover:text-white'}`} onClick={() => setActiveTab('news')}>📰 Новости</button>
                 <button className={`py-2 px-4 rounded font-bold text-sm transition ${activeTab === 'authors' ? 'bg-blue-600 text-white' : 'bg-[#222] text-gray-400 hover:text-white'}`} onClick={() => setActiveTab('authors')}>👤 Авторы</button>
             </div>
@@ -175,6 +254,167 @@ const Tma = () => {
 
             {activeTab === 'news' && <div className="bg-[#1a1a1a] border border-[#333] rounded-xl p-8 text-center text-gray-500">📰 Управление новостями (в разработке)</div>}
             {activeTab === 'authors' && <div className="bg-[#1a1a1a] border border-[#333] rounded-xl p-8 text-center text-gray-500">👤 Управление авторами (в разработке)</div>}
+
+            {activeTab === 'forecasts' && (
+                <div className="space-y-6">
+                    <div className="flex items-center justify-between">
+                        <h2 className="text-2xl font-bold flex items-center gap-2">🎖️ Редактор Прогнозов</h2>
+                        <p className="text-sm text-gray-400">Управление прогнозами облав по дням недели</p>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                        {forecasts.map((forecast, index) => (
+                            <div key={forecast.day} className="bg-[#1a1a1a] border border-[#333] rounded-xl p-4 space-y-3 hover:border-blue-500/50 transition">
+                                <div className="text-center">
+                                    <div className="text-4xl mb-2">{forecast.icon}</div>
+                                    <div className="text-xl font-bold text-blue-400">{forecast.day}</div>
+                                </div>
+                                
+                                <div className="space-y-2">
+                                    <div>
+                                        <label className="text-xs text-gray-400 font-bold block mb-1">РИСК (%)</label>
+                                        <input 
+                                            type="range" 
+                                            min="0" 
+                                            max="100" 
+                                            value={forecast.risk} 
+                                            onChange={(e) => handleUpdateForecast(index, 'risk', e.target.value)}
+                                            disabled={loading}
+                                            className="w-full h-2 rounded-lg accent-red-500 cursor-pointer"
+                                        />
+                                        <div className="text-center text-lg font-bold text-red-500 mt-1">{forecast.risk}%</div>
+                                    </div>
+
+                                    <div>
+                                        <label className="text-xs text-gray-400 font-bold block mb-1">УРОВЕНЬ</label>
+                                        <select 
+                                            value={forecast.label} 
+                                            onChange={(e) => handleUpdateForecast(index, 'label', e.target.value)}
+                                            disabled={loading}
+                                            className="w-full bg-[#222] border border-[#444] text-white rounded-lg p-2 font-bold text-sm focus:outline-none focus:border-blue-500"
+                                        >
+                                            <option>Минимальный</option>
+                                            <option>Низкий</option>
+                                            <option>Средний</option>
+                                            <option>Высокий</option>
+                                            <option>Критический</option>
+                                        </select>
+                                    </div>
+
+                                    <div>
+                                        <label className="text-xs text-gray-400 font-bold block mb-1">ИКОНКА</label>
+                                        <input 
+                                            type="text" 
+                                            value={forecast.icon} 
+                                            onChange={(e) => handleUpdateForecast(index, 'icon', e.target.value)}
+                                            disabled={loading}
+                                            className="w-full bg-[#222] border border-[#444] text-white rounded-lg p-2 font-bold text-center focus:outline-none focus:border-blue-500"
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+
+                    <button onClick={handleSaveForecasts} disabled={loading} className="w-full bg-blue-600 text-white font-bold py-3 rounded-lg hover:bg-blue-700 transition flex items-center justify-center gap-2 disabled:opacity-50">
+                        <Save size={18}/>
+                        {loading ? 'Сохранение...' : 'Сохранить прогнозы'}
+                    </button>
+
+                    <div className="bg-blue-900/20 border border-blue-500/30 rounded-lg p-4 text-sm text-blue-300">
+                        💡 Совет: Установите риск в процентах для каждого дня. Уровень - это описание, иконка будет отображаться в интерфейсе.
+                    </div>
+                </div>
+            )}
+
+            {activeTab === 'widgets' && (
+                <div className="space-y-6">
+                    <div className="bg-[#1a1a1a] border border-[#333] rounded-xl p-6 space-y-4">
+                        <h2 className="text-2xl font-bold flex items-center gap-2"><Box className="text-purple-500"/> Добавить Виджет</h2>
+                        <div className="grid grid-cols-2 gap-4">
+                            <div>
+                                <label className="text-xs text-gray-400 font-bold mb-2 block">ТИП</label>
+                                <select value={newWidget.type} onChange={(e) => setNewWidget({...newWidget, type: e.target.value})} disabled={loading} className="w-full bg-[#222] border border-[#444] text-white rounded-lg p-3 font-bold focus:outline-none focus:border-blue-500">
+                                    <option value="info">Info</option>
+                                    <option value="warning">Warning</option>
+                                    <option value="success">Success</option>
+                                    <option value="alert">Alert</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label className="text-xs text-gray-400 font-bold mb-2 block">НАЗВАНИЕ</label>
+                                <input type="text" value={newWidget.title} onChange={(e) => setNewWidget({...newWidget, title: e.target.value})} placeholder="Название..." disabled={loading} className="w-full bg-[#222] border border-[#444] text-white rounded-lg p-3 font-bold focus:outline-none focus:border-blue-500 placeholder-gray-600" />
+                            </div>
+                        </div>
+                        <div>
+                            <label className="text-xs text-gray-400 font-bold mb-2 block">ТЕКСТ</label>
+                            <textarea value={newWidget.text} onChange={(e) => setNewWidget({...newWidget, text: e.target.value})} placeholder="Описание..." disabled={loading} rows="3" className="w-full bg-[#222] border border-[#444] text-white rounded-lg p-3 font-bold focus:outline-none focus:border-blue-500 placeholder-gray-600 resize-none" />
+                        </div>
+                        <div className="grid grid-cols-3 gap-4">
+                            <div>
+                                <label className="text-xs text-gray-400 font-bold mb-2 block">ЦВЕТ</label>
+                                <select value={newWidget.color} onChange={(e) => setNewWidget({...newWidget, color: e.target.value})} disabled={loading} className="w-full bg-[#222] border border-[#444] text-white rounded-lg p-3 font-bold focus:outline-none focus:border-blue-500">
+                                    <option value="blue">Blue</option>
+                                    <option value="red">Red</option>
+                                    <option value="green">Green</option>
+                                    <option value="yellow">Yellow</option>
+                                    <option value="purple">Purple</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label className="text-xs text-gray-400 font-bold mb-2 block">ИКОНКА</label>
+                                <input type="text" value={newWidget.icon} onChange={(e) => setNewWidget({...newWidget, icon: e.target.value})} placeholder="Icon name" disabled={loading} className="w-full bg-[#222] border border-[#444] text-white rounded-lg p-3 font-bold focus:outline-none focus:border-blue-500 placeholder-gray-600" />
+                            </div>
+                            <div>
+                                <label className="text-xs text-gray-400 font-bold mb-2 block">ШИРОКИЙ</label>
+                                <select value={newWidget.is_wide} onChange={(e) => setNewWidget({...newWidget, is_wide: parseInt(e.target.value)})} disabled={loading} className="w-full bg-[#222] border border-[#444] text-white rounded-lg p-3 font-bold focus:outline-none focus:border-blue-500">
+                                    <option value="0">Нет</option>
+                                    <option value="1">Да</option>
+                                </select>
+                            </div>
+                        </div>
+                        <button onClick={handleAddWidget} disabled={loading || !newWidget.title} className="w-full bg-purple-600 text-white font-bold py-3 rounded-lg hover:bg-purple-700 transition flex items-center justify-center gap-2 disabled:opacity-50">
+                            <Plus size={18}/>
+                            {loading ? 'Добавление...' : 'Добавить Виджет'}
+                        </button>
+                    </div>
+
+                    <div className="bg-[#1a1a1a] border border-[#333] rounded-xl p-6 space-y-4">
+                        <div className="flex justify-between items-center">
+                            <h3 className="font-bold text-lg">Виджеты ({widgets.length})</h3>
+                            <button onClick={loadWidgets} disabled={loading} className="bg-blue-600/30 text-blue-400 px-3 py-2 rounded border border-blue-500/50 hover:bg-blue-600/50 transition text-xs font-bold"><RefreshCw size={14}/></button>
+                        </div>
+                        {widgets.length === 0 ? (
+                            <div className="text-gray-500 text-center py-12">Нет виджетов</div>
+                        ) : (
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                {widgets.map(w => (
+                                    <div key={w.id} className={`bg-[#111] border border-[#333] p-4 rounded-lg group relative ${w.is_wide ? 'md:col-span-2' : ''}`}>
+                                        <div className="flex justify-between items-start mb-2">
+                                            <div>
+                                                <div className="text-xs text-gray-400 uppercase font-bold">{w.type}</div>
+                                                <div className="text-xl font-bold text-white mt-1">{w.title}</div>
+                                            </div>
+                                            <span className={`text-xs px-2 py-1 rounded font-bold text-white ${w.color === 'blue' ? 'bg-blue-600' : w.color === 'red' ? 'bg-red-600' : w.color === 'green' ? 'bg-green-600' : w.color === 'yellow' ? 'bg-yellow-600' : 'bg-purple-600'}`}>
+                                                {w.color}
+                                            </span>
+                                        </div>
+                                        <div className="text-sm text-gray-400 mb-3 line-clamp-2">{w.text || 'Нет описания'}</div>
+                                        <div className="flex gap-2 items-center text-xs text-gray-500">
+                                            <span>ID: {w.id}</span>
+                                            <span>•</span>
+                                            <span>{w.is_wide ? 'Широкий' : 'Обычный'}</span>
+                                        </div>
+                                        <button onClick={() => handleDeleteWidget(w.id)} className="absolute -top-2 -right-2 bg-red-600 text-white rounded-full w-6 h-6 flex items-center justify-center opacity-0 group-hover:opacity-100 transition hover:bg-red-700">
+                                            <Trash2 size={14}/>
+                                        </button>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

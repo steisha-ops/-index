@@ -43,9 +43,17 @@ export const api = {
     addButton: (d) => req('/buttons', 'POST', d),
     deleteButton: (id) => req(`/buttons/${id}`, 'DELETE'),
 
+
     getPages: () => req('/pages'),
     addPage: (d) => req('/pages', 'POST', d),
     deletePage: (id) => req(`/pages/${id}`, 'DELETE'),
+
+    getWidgets: () => req('/widgets'),
+    createWidget: (d) => req('/widgets', 'POST', d),
+    deleteWidget: (id) => req(`/widgets/${id}`, 'DELETE'),
+
+    getForecasts: () => req('/forecasts'),
+    saveForecasts: (d) => req('/forecasts', 'POST', d),
 
     getMarkers: () => req('/markers'),
     addMarker: (d) => req('/markers', 'POST', d),
