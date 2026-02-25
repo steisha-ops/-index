@@ -4,13 +4,20 @@ import { Newspaper, Users, Trash2, Plus, RefreshCw, FileText, CheckCircle, Circl
 const API = "/api"; 
 const req = async (u, m='GET', b) => {
     try {
+        console.log(`📤 ${m} ${API}${u}`, b || '');
         const res = await fetch(API+u, {
             method: m, 
             headers: {'Content-Type':'application/json'},
             body: b ? JSON.stringify(b) : undefined
         });
-        return await res.json();
-    } catch(e) { return []; }
+        console.log(`📥 Response status:`, res.status);
+        const data = await res.json();
+        console.log(`📥 Response data:`, data);
+        return data;
+    } catch(e) { 
+        console.error("❌ API Error:", e); 
+        return {error: e.message}; 
+    }
 };
 
 const SidebarItem = ({ icon: Icon, label, active, onClick }) => (
@@ -32,8 +39,10 @@ export default function MacOSAdmin() {
 
     const refresh = async () => {
         const a = await req('/authors');
+        console.log('Authors response:', a);
         setAuthors(Array.isArray(a) ? a : []);
         const n = await req('/news');
+        console.log('News response:', n);
         setNews(Array.isArray(n) ? n : []);
     };
 

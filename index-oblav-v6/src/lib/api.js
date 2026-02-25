@@ -1,5 +1,21 @@
-const post = (u, d) => fetch(u, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(d)}).then(r=>r.json());
-const get = (u) => fetch(u).then(r=>r.json());
+const post = (u, d) => {
+    console.log(`📤 POST ${u}`, d);
+    return fetch(u, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(d)})
+        .then(r=>{
+            console.log(`📥 POST ${u} status:`, r.status);
+            return r.json();
+        })
+        .catch(e=> { console.error("❌ POST Error:", e); return null; });
+};
+const get = (u) => {
+    console.log(`📤 GET ${u}`);
+    return fetch(u)
+        .then(r=>{
+            console.log(`📥 GET ${u} status:`, r.status);
+            return r.json();
+        })
+        .catch(e=> { console.error("❌ GET Error:", e); return []; });
+};
 
 export const api = {
     getSettings: () => get('/api/settings'),

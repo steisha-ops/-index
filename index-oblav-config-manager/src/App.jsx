@@ -92,7 +92,7 @@ const ConfigWindow = () => {
     };
 
     // ACTIONS
-    const handleSaveIndex = async () => { await api.updateRegionIndex(selectedRegionId, selectedIndex); alert('Saved'); };
+    const handleSaveIndex = async () => { await api.updateRegionIndex(selectedRegionId, selectedIndex); loadRegionData(selectedRegionId); alert('✅ Индекс сохранён'); };
     const handleHistoryEdit = async (d, v) => { const n = prompt('', v); if(n) { await api.updateRegionHistory(selectedRegionId, d, n); loadRegionData(selectedRegionId); } };
     const handleDeleteDay = async (e, date) => { e.stopPropagation(); if(confirm(`Del ${date}?`)) { await api.deleteHistoryDay(selectedRegionId, date); loadRegionData(selectedRegionId); } };
     const handleAddDay = async () => { if(!newDate.date) return; await api.updateRegionHistory(selectedRegionId, newDate.date, newDate.value); loadRegionData(selectedRegionId); };

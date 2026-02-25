@@ -37,7 +37,7 @@ const ReportPage = () => {
     }
 
     return (
-        <div className="min-h-screen bg-[var(--bg-main)] pt-16 px-6 font-sans text-[var(--text-primary)] pb-32">
+        <div className="min-h-screen bg-[var(--bg-main)] pt-16 px-6 font-sans text-[var(--text-primary)] pb-40">
             <div className="max-w-md mx-auto">
                 <h1 className="text-3xl font-black mb-2">СООБЩИТЬ ОБ ОБЛАВЕ</h1>
                 <p className="text-[var(--text-dim)] text-sm mb-8 flex items-center gap-2"><ShieldCheck size={16} className="text-green-500"/> Ваш отчет полностью анонимен</p>

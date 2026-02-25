@@ -1,4 +1,3 @@
-
 import express from 'express';
 import sqlite3 from 'sqlite3';
 import cors from 'cors';
@@ -11,8 +10,53 @@ const app = express();
 const PORT = 3001;
 const saltRounds = 10; // For bcrypt
 
+// ===== SECURITY =====
+const validateInput = (val, type = 'string', min = 0, max = Infinity) => {
+    if (type === 'number') {
+        const n = parseFloat(val);
+        if (isNaN(n) || n < min || n > max) throw new Error(`Invalid number: ${val}`);
+        return n;
+    }
+    if (type === 'string') {
+        if (!val || typeof val !== 'string' || val.length > max) throw new Error(`Invalid string`);
+        return val.trim();
+    }
+    return val;
+};
+
+const reqLog = {}; // Rate limiting
+const checkRateLimit = (ip) => {
+    const now = Date.now();
+    if (!reqLog[ip]) reqLog[ip] = [];
+    reqLog[ip] = reqLog[ip].filter(t => now - t < 60000);
+    if (reqLog[ip].length > 150) return false;
+    reqLog[ip].push(now);
+    return true;
+};
+
+app.use((req, res, next) => {
+    const ip = req.ip || 'unknown';
+    if (!checkRateLimit(ip)) return res.status(429).json({ error: 'Too many requests' });
+    next();
+});
+
 app.use(bodyParser.json({ limit: '50mb' }));
 app.use(cors());
+
+// Memory cache for frequently accessed data
+const cache = {
+    regions: null,
+    authors: null,
+    news: null,
+    widgets: null,
+    buttons: null,
+    popups: null,
+    pages: null,
+    lastUpdate: {}
+};
+
+// Cache TTL in milliseconds (5 minutes)
+const CACHE_TTL = 5 * 60 * 1000;
 
 // Путь к базе
 const dbPath = join(dirname(fileURLToPath(import.meta.url)), 'database.sqlite');
@@ -22,6 +66,7 @@ const db = new sqlite3.Database(dbPath, (err) => {
 });
 
 function initDb() {
+    db.configure('busyTimeout', 5000);
     db.serialize(() => {
         // 1. ТАБЛИЦЫ
         const schema = [
@@ -35,66 +80,104 @@ function initDb() {
             `CREATE TABLE IF NOT EXISTS pages (id INTEGER PRIMARY KEY, slug TEXT, title TEXT, content TEXT, is_hidden INTEGER)`,
             `CREATE TABLE IF NOT EXISTS markers (id INTEGER PRIMARY KEY, lat REAL, lng REAL, desc TEXT)`,
             `CREATE TABLE IF NOT EXISTS notifications (id INTEGER PRIMARY KEY, title TEXT, body TEXT, type TEXT)`,
-            `CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)`
+            `CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)`,
+            `CREATE TABLE IF NOT EXISTS reports (id INTEGER PRIMARY KEY, text TEXT, image TEXT, created_at TEXT)`
         ];
         schema.forEach(sql => db.run(sql));
+        
+        // Create indexes for performance
+        const indexes = [
+            "CREATE INDEX IF NOT EXISTS idx_news_author ON news(author_id)",
+            "CREATE INDEX IF NOT EXISTS idx_history_region ON history(region_id, date)",
+            "CREATE INDEX IF NOT EXISTS idx_authors_id ON authors(id)",
+            "CREATE INDEX IF NOT EXISTS idx_pages_slug ON pages(slug)"
+        ];
+        indexes.forEach(sql => db.run(sql));
 
         // 2. НАПОЛНЕНИЕ (SEEDING)
         db.get("SELECT count(*) as c FROM regions", (e,r) => {
             if(r && r.c === 0) {
                 console.log("🌱 Database is empty. Seeding...");
                 
-                // Регионы
-                const stmt = db.prepare("INSERT INTO regions (name, lat, lng, zoom, current_index) VALUES (?,?,?,?,?)");
-                stmt.run('Москва', 55.75, 37.61, 11, 3.5);
-                stmt.run('Санкт-Петербург', 59.93, 30.33, 11, 8.0);
-                stmt.finalize();
+                db.serialize(() => {
+                    // Регионы
+                    const stmt = db.prepare("INSERT INTO regions (name, lat, lng, zoom, current_index) VALUES (?,?,?,?,?)");
+                    stmt.run('Москва', 55.75, 37.61, 11, 3.5);
+                    stmt.run('Санкт-Петербург', 59.93, 30.33, 11, 8.0);
+                    stmt.finalize();
 
-                // История (График)
-                const hist = db.prepare("INSERT INTO history (region_id, date, value) VALUES (?,?,?)");
-                const today = new Date();
-                for(let i=180; i>=0; i--) {
-                    const d = new Date(today);
-                    d.setDate(d.getDate() - i);
-                    hist.run(1, d.toISOString().split('T')[0], (3 + Math.sin(i/10)).toFixed(2));
-                    hist.run(2, d.toISOString().split('T')[0], (7 + Math.cos(i/10)).toFixed(2));
-                }
-                hist.finalize();
+                    // История (График)
+                    const hist = db.prepare("INSERT INTO history (region_id, date, value) VALUES (?,?,?)");
+                    const today = new Date();
+                    for(let i=180; i>=0; i--) {
+                        const d = new Date(today);
+                        d.setDate(d.getDate() - i);
+                        hist.run(1, d.toISOString().split('T')[0], (3 + Math.sin(i/10)).toFixed(2));
+                        hist.run(2, d.toISOString().split('T')[0], (7 + Math.cos(i/10)).toFixed(2));
+                    }
+                    hist.finalize();
 
-                // Автор
-                db.run("INSERT INTO authors (name, handle, avatar, bio, is_verified) VALUES ('Admin', 'admin', '', 'System Admin', 1)");
-                
-                // Новости
-                db.run("INSERT INTO news (author_id, text, date, tags, is_highlighted) VALUES (1, 'Система запущена.', ?, 'info', 1)", [new Date().toISOString()]);
+                    // Автор
+                    db.run("INSERT INTO authors (name, handle, avatar, bio, is_verified) VALUES (?,?,?,?,?)", ['Admin', 'admin', 'https://api.dicebear.com/7.x/avataaars/svg?seed=Admin', 'System Admin', 1], function() {
+                        console.log("✅ Author 'Admin' created with ID:", this.lastID);
+                    });
+                    
+                    // Новости
+                    db.run("INSERT INTO news (author_id, text, date, tags, is_highlighted) VALUES (?,?,?,?,?)", [1, 'Система запущена.', new Date().toISOString(), 'info', 1], function() {
+                        console.log("✅ News created with ID:", this.lastID);
+                    });
 
-                // Виджеты и Кнопки
-                db.run("INSERT INTO widgets (type, title, text, color, icon, is_wide) VALUES ('clock', 'Время', '', 'blue', 'Clock', 0)");
-                db.run("INSERT INTO buttons (label, icon, link) VALUES ('Help', 'Zap', 'popup:1')");
-                db.run("INSERT INTO popups (title, text) VALUES ('Info', 'Test Popup')");
+                    // Виджеты и Кнопки
+                    db.run("INSERT INTO widgets (type, title, text, color, icon, is_wide) VALUES (?,?,?,?,?,?)", ['clock', 'Время', '', 'blue', 'Clock', 0]);
+                    db.run("INSERT INTO buttons (label, icon, link) VALUES (?,?,?)", ['Help', 'Zap', 'popup:1']);
+                    db.run("INSERT INTO popups (title, text) VALUES (?,?)", ['Info', 'Test Popup']);
 
-                console.log("✅ Data Created.");
+                    console.log("✅ Seeding completed.");
+                });
+            } else {
+                console.log("✅ Database already has data (regions count:", r?.c, ")");
             }
         });
     });
 }
 
+// --- CACHE HELPERS ---
+const isCacheValid = (key) => cache.lastUpdate[key] && (Date.now() - cache.lastUpdate[key] < CACHE_TTL);
+const setCache = (key, value) => { cache[key] = value; cache.lastUpdate[key] = Date.now(); };
+
 // --- API ROUTES --
 
-const get = (sql) => (req, res) => db.all(sql, (e,r) => res.json(r||[]));
+const get = (sql, cacheKey) => (req, res) => {
+    if (cacheKey && isCacheValid(cacheKey)) {
+        return res.json(cache[cacheKey] || []);
+    }
+    db.all(sql, (e,r) => {
+        const result = r || [];
+        if (cacheKey) setCache(cacheKey, result);
+        res.json(result);
+    });
+};
 
 // READ
-app.get('/api/regions', get("SELECT * FROM regions"));
-app.get('/api/news', get("SELECT news.*, authors.name, authors.handle, authors.avatar, authors.is_verified FROM news LEFT JOIN authors ON news.author_id = authors.id ORDER BY news.id DESC"));
-app.get('/api/widgets', get("SELECT * FROM widgets"));
-app.get('/api/buttons', get("SELECT * FROM buttons"));
-app.get('/api/popups', get("SELECT * FROM popups"));
-app.get('/api/pages', get("SELECT * FROM pages"));
+app.get('/api/regions', get("SELECT * FROM regions", 'regions'));
+app.get('/api/news', get("SELECT news.*, authors.name, authors.handle, authors.avatar, authors.is_verified FROM news LEFT JOIN authors ON news.author_id = authors.id ORDER BY news.id DESC", 'news'));
+app.get('/api/widgets', get("SELECT * FROM widgets", 'widgets'));
+app.get('/api/buttons', get("SELECT * FROM buttons", 'buttons'));
+app.get('/api/popups', get("SELECT * FROM popups", 'popups'));
+app.get('/api/pages', get("SELECT * FROM pages", 'pages'));
 app.get('/api/markers', get("SELECT * FROM markers"));
-app.get('/api/authors', get("SELECT id, name, handle, avatar, bio, is_verified, access_level, failed_login_attempts, lock_expires_at FROM authors")); // Excluded password
+app.get('/api/authors', (req, res) => {
+    console.log("📍 GET /api/authors called");
+    db.all("SELECT id, name, handle, avatar, bio, is_verified FROM authors", (err, rows) => {
+        console.log("  Authors from DB:", rows?.length || 0, rows || []);
+        if(err) console.error("  ERROR:", err);
+        res.json(rows || []);
+    });
+});
 app.get('/api/settings', get("SELECT * FROM settings"));
 
 app.get('/api/authors/:id', (req, res) => {
-    db.get("SELECT id, name, handle, avatar, bio, is_verified, access_level FROM authors WHERE id=?", [req.params.id], (e, a) => {
+    db.get("SELECT id, name, handle, avatar, bio, is_verified FROM authors WHERE id=?", [req.params.id], (e, a) => {
         db.all("SELECT * FROM news WHERE author_id=? ORDER BY id DESC", [req.params.id], (e2, n) => res.json({author:a||{}, news:n||[]}));
     });
 });
@@ -110,6 +193,21 @@ app.get('/api/region_data/:id', (req, res) => {
 
 app.get('/api/notifications/poll', (req, res) => {
     db.all("SELECT * FROM notifications WHERE id > ? ORDER BY id DESC LIMIT 1", [req.query.last_id||0], (e,r)=>res.json(r||[]));
+});
+
+// DEBUG - Check all data in DB
+app.get('/api/debug/authors', (req, res) => {
+    db.all("SELECT * FROM authors", (e, authors) => {
+        console.log("🔍 DEBUG authors:", authors);
+        res.json({ total: authors?.length || 0, authors: authors || [] });
+    });
+});
+
+app.get('/api/debug/db', (req, res) => {
+    db.all("SELECT name FROM sqlite_master WHERE type='table'", (e, tables) => {
+        console.log("🔍 DEBUG tables:", tables);
+        res.json({tables});
+    });
 });
 
 // WRITE (CRUD)
@@ -128,26 +226,58 @@ app.post('/api/regions', (req, res) => db.run("INSERT INTO regions (name, lat, l
 }));
 app.delete('/api/regions/:id', (req,res) => { db.run("DELETE FROM regions WHERE id=?",[req.params.id]); db.run("DELETE FROM history WHERE region_id=?",[req.params.id]); res.json({ok:true}); });
 
-app.post('/api/update_region_index', (req, res) => db.run("UPDATE regions SET current_index=? WHERE id=?", [req.body.value, req.body.id], ()=>res.json({ok:true})));
+app.post('/api/update_region_index', (req, res) => {
+    try {
+        const id = validateInput(req.body.id, 'number', 1, 10000);
+        const value = validateInput(req.body.value, 'number', 0.1, 11);
+        db.run("UPDATE regions SET current_index=? WHERE id=?", [value, id], ()=>res.json({ok:true}));
+    } catch(e) {
+        res.status(400).json({error: e.message});
+    }
+});
+
 app.post('/api/update_region_history', (req, res) => {
-    db.run("DELETE FROM history WHERE region_id=? AND date LIKE ?", [req.body.id, `${req.body.date}%`], () => {
-        db.run("INSERT INTO history (region_id, date, value) VALUES (?,?,?)", [req.body.id, req.body.date, req.body.value], ()=>res.json({ok:true}));
-    });
+    try {
+        const id = validateInput(req.body.id, 'number', 1, 10000);
+        const date = validateInput(req.body.date, 'string', 8, 20);
+        const value = validateInput(req.body.value, 'number', 0.1, 11);
+        if (!/^\d{4}-\d{2}-\d{2}/.test(date)) throw new Error('Invalid date format');
+        db.run("DELETE FROM history WHERE region_id=? AND date LIKE ?", [id, `${date}%`], () => {
+            db.run("INSERT INTO history (region_id, date, value) VALUES (?,?,?)", [id, date, value], ()=>res.json({ok:true}));
+        });
+    } catch(e) {
+        res.status(400).json({error: e.message});
+    }
 });
-app.post('/api/delete_history_day', (req, res) => db.run("DELETE FROM history WHERE region_id=? AND date LIKE ?", [req.body.region_id, `${req.body.date}%`], ()=>res.json({ok:true})));
+app.post('/api/delete_history_day', (req, res) => {
+    try {
+        const region_id = validateInput(req.body.region_id, 'number', 1, 10000);
+        const date = validateInput(req.body.date, 'string', 8, 20);
+        if (!/^\d{4}-\d{2}-\d{2}/.test(date)) throw new Error('Invalid date format');
+        db.run("DELETE FROM history WHERE region_id=? AND date LIKE ?", [region_id, `${date}%`], ()=>res.json({ok:true}));
+    } catch(e) {
+        res.status(400).json({error: e.message});
+    }
+});
+
 app.post('/api/shift_day', (req, res) => {
-    db.get("SELECT MAX(date) as last FROM history WHERE region_id=?", [req.body.region_id], (e,r)=>{
-        if(!r) return res.json({ok:false});
-        const next = new Date(r.last); next.setDate(next.getDate()+1);
-        db.run("DELETE FROM history WHERE region_id=? AND date = (SELECT MIN(date) FROM history WHERE region_id=?)", [req.body.region_id, req.body.region_id]);
-        db.run("INSERT INTO history (region_id, date, value) VALUES (?,?, 3.0)", [req.body.region_id, next.toISOString().split('T')[0]], ()=>res.json({ok:true}));
-    });
+    try {
+        const region_id = validateInput(req.body.region_id, 'number', 1, 10000);
+        db.get("SELECT MAX(date) as last FROM history WHERE region_id=?", [region_id], (e,r)=>{
+            if(!r) return res.json({ok:false});
+            const next = new Date(r.last); next.setDate(next.getDate()+1);
+            db.run("DELETE FROM history WHERE region_id=? AND date = (SELECT MIN(date) FROM history WHERE region_id=?)", [region_id, region_id]);
+            db.run("INSERT INTO history (region_id, date, value) SELECT ?,?,value FROM history WHERE region_id=? ORDER BY date DESC LIMIT 1", [region_id, next.toISOString().split('T')[0], region_id], ()=>res.json({ok:true}));
+        });
+    } catch(e) {
+        res.status(400).json({error: e.message});
+    }
 });
 
-app.post('/api/news', (req,res) => db.run("INSERT INTO news (author_id,text,image,date,btn_text,btn_link,tags,is_highlighted) VALUES (?,?,?,?,?,?,?,?)", [req.body.author_id,req.body.text,req.body.image,new Date().toISOString(),req.body.btn_text,req.body.btn_link,req.body.tags,req.body.is_highlighted?1:0], ()=>res.json({ok:true})));
-app.delete('/api/news/:id', (req,res) => db.run("DELETE FROM news WHERE id=?", [req.params.id], ()=>res.json({ok:true})));
+app.post('/api/news', (req,res) => db.run("INSERT INTO news (author_id,text,image,date,btn_text,btn_link,tags,is_highlighted) VALUES (?,?,?,?,?,?,?,?)", [req.body.author_id,req.body.text,req.body.image,new Date().toISOString(),req.body.btn_text,req.body.btn_link,req.body.tags,req.body.is_highlighted?1:0], ()=>{ cache.news = null; res.json({ok:true});}));
+app.delete('/api/news/:id', (req,res) => db.run("DELETE FROM news WHERE id=?", [req.params.id], ()=>{ cache.news = null; res.json({ok:true});}));
 
-app.post('/api/authors', (req,res) => db.run("INSERT INTO authors (name,handle,avatar,bio,is_verified) VALUES (?,?,?,?,?)", [req.body.name,req.body.handle,req.body.avatar,req.body.bio,req.body.is_verified?1:0], ()=>res.json({ok:true})));
+app.post('/api/authors', (req,res) => db.run("INSERT INTO authors (name,handle,avatar,bio,is_verified) VALUES (?,?,?,?,?)", [req.body.name,req.body.handle,req.body.avatar,req.body.bio,req.body.is_verified?1:0], ()=>{ cache.authors = null; res.json({ok:true});}));
 app.delete('/api/authors/:id', (req,res) => db.run("DELETE FROM authors WHERE id=?", [req.params.id], ()=>res.json({ok:true})));
 
 // --- NEW AUTHOR AUTH ---
@@ -214,102 +344,32 @@ app.post('/api/author/login', (req, res) => {
         });
     });
 });
-// --------------------
 
-app.post('/api/widgets', (req,res) => db.run("INSERT INTO widgets (type,title,text,color,icon,link,image,is_wide,sub_widgets) VALUES (?,?,?,?,?,?,?,?,?)", [req.body.type,req.body.title,req.body.text,req.body.color,req.body.icon,req.body.link,req.body.image,req.body.is_wide?1:0,JSON.stringify(req.body.sub_widgets)], ()=>res.json({ok:true})));
-app.delete('/api/widgets/:id', (req,res) => db.run("DELETE FROM widgets WHERE id=?", [req.params.id], ()=>res.json({ok:true})));
-
-app.post('/api/buttons', (req,res) => db.run("INSERT INTO buttons (label,icon,link) VALUES (?,?,?)", [req.body.label,req.body.icon,req.body.link], ()=>res.json({ok:true})));
-app.delete('/api/buttons/:id', (req,res) => db.run("DELETE FROM buttons WHERE id=?", [req.params.id], ()=>res.json({ok:true})));
-
-app.post('/api/popups', (req,res) => db.run("INSERT INTO popups (title,text,image) VALUES (?,?,?)", [req.body.title,req.body.text,req.body.image], ()=>res.json({ok:true})));
-app.delete('/api/popups/:id', (req,res) => db.run("DELETE FROM popups WHERE id=?", [req.params.id], ()=>res.json({ok:true})));
-
-app.post('/api/pages', (req,res) => db.run("INSERT OR REPLACE INTO pages (slug,title,content,is_hidden) VALUES (?,?,?,?)", [req.body.slug,req.body.title,req.body.content,req.body.is_hidden?1:0], ()=>res.json({ok:true})));
-app.delete('/api/pages/:id', (req,res) => db.run("DELETE FROM pages WHERE id=?", [req.params.id], ()=>res.json({ok:true})));
-
+// --- ENDPOINTS ---
+app.get('/api/markers', get("SELECT * FROM markers"));
 app.post('/api/markers', (req,res) => db.run("INSERT INTO markers (lat,lng,desc) VALUES (?,?,?)", [req.body.lat,req.body.lng,req.body.desc], ()=>res.json({ok:true})));
 app.delete('/api/markers/:id', (req,res) => db.run("DELETE FROM markers WHERE id=?", [req.params.id], ()=>res.json({ok:true})));
 
 app.post('/api/notify', (req,res) => db.run("INSERT INTO notifications (title,body,type) VALUES (?,?,?)", [req.body.title,req.body.body,req.body.type], ()=>res.json({ok:true})));
-app.post('/api/reports', (req,res) => db.run("INSERT INTO reports (text,image,date) VALUES (?,?,?)", [req.body.text,req.body.image,new Date().toISOString()], ()=>res.json({ok:true})));
-app.delete('/api/reports/all', (req,res) => db.run("DELETE FROM reports", [], ()=>res.json({ok:true})));
+
+app.post('/api/reports', (req,res) => {
+    console.log("📋 POST /api/reports received");
+    db.run("INSERT INTO reports (text, image, created_at) VALUES (?,?,?)", [req.body.text, req.body.image, new Date().toISOString()], function(err) {
+        if(err) {
+            console.error("❌ Report error:", err);
+            return res.json({ok: false, error: err.message});
+        }
+        console.log("✅ Report saved:", this.lastID);
+        res.json({ok:true});
+    });
+});
+
+app.get('/api/reports', (req,res) => {
+    db.all("SELECT id, text, image, created_at FROM reports ORDER BY id DESC", (err, rows) => {
+        res.json(rows || []);
+    });
+});
+
 app.post('/api/optimize', (req,res) => db.run("VACUUM", [], ()=>res.json({ok:true})));
 
-app.listen(PORT, () => console.log(`Server OK on ${PORT}`));
-
-// --- SECURITY CORE ---
-db.serialize(() => {
-    db.run(`CREATE TABLE IF NOT EXISTS admin_devices (fingerprint TEXT PRIMARY KEY, trusted INTEGER)`);
-});
-
-// Хэш пароля "admin"
-const ADMIN_HASH = "8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918";
-
-app.post('/api/auth/login', (req, res) => {
-    const { password, fingerprint } = req.body;
-    
-    // 1. Проверка пароля
-    // (В реале используй bcrypt, но для TMA SHA256 ок)
-    // Хэширование должно быть на клиенте, сервер сверяет хэши.
-    // Но здесь мы упростим: клиент шлет текст, мы хэшируем. (Или клиент шлет хэш).
-    // Допустим клиент шлет хэш.
-    
-    if (password !== ADMIN_HASH) return res.status(403).json({error: "Wrong Password"});
-
-    // 2. Проверка устройства
-    db.get("SELECT count(*) as c FROM admin_devices", (e, r) => {
-        // Если база устройств пуста - это первый вход, доверяем этому устройству
-        if (r.c === 0) {
-            db.run("INSERT INTO admin_devices (fingerprint, trusted) VALUES (?, 1)", [fingerprint]);
-            return res.json({ok: true, token: "ADMIN_SESSION_INIT"});
-        }
-        
-        // Если не пуста, проверяем, есть ли этот фингерпринт
-        db.get("SELECT * FROM admin_devices WHERE fingerprint=?", [fingerprint], (e2, dev) => {
-            if (dev && dev.trusted) {
-                res.json({ok: true, token: "ADMIN_SESSION_VERIFIED"});
-            } else {
-                res.status(401).json({error: "UNAUTHORIZED DEVICE. ACCESS DENIED."});
-            }
-        });
-    });
-});
-// --------------------
-
-// --- DEVICE SECURITY PATCH ---
-db.serialize(() => {
-    db.run(`CREATE TABLE IF NOT EXISTS admin_devices (fingerprint TEXT PRIMARY KEY, trusted INTEGER, created_at DATETIME)`);
-    // Хэш пароля (SHA256 от 'admin')
-    db.run("INSERT OR IGNORE INTO settings (key, value) VALUES ('admin_hash', '8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918')");
-});
-
-app.post('/api/auth/login', (req, res) => {
-    const { password, fingerprint } = req.body;
-    
-    // 1. Проверяем пароль (сравниваем хэши)
-    db.get("SELECT value FROM settings WHERE key='admin_hash'", (e, r) => {
-        const storedHash = r ? r.value : '8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918'; // Default 'admin'
-        
-        // if (password !== storedHash) return res.status(403).json({ error: "Invalid Password" });
-
-        // 2. Проверяем устройство
-        db.get("SELECT count(*) as c FROM admin_devices", (e2, r2) => {
-            // Если это ПЕРВОЕ устройство, регистрируем его как админское
-            if (r2.c === 0) {
-                db.run("INSERT INTO admin_devices (fingerprint, trusted, created_at) VALUES (?, 1, ?)", [fingerprint, new Date().toISOString()]);
-                return res.json({ ok: true, token: "MASTER_DEVICE_REGISTERED" });
-            }
-            
-            // Если устройства уже есть, проверяем совпадение
-            db.get("SELECT * FROM admin_devices WHERE fingerprint=?", [fingerprint], (e3, dev) => {
-                if (dev && dev.trusted) {
-                    res.json({ ok: true, token: "DEVICE_VERIFIED" });
-                } else {
-                    res.status(401).json({ error: "DEVICE NOT RECOGNIZED. ACCESS DENIED." });
-                }
-            });
-        });
-    });
-});
-// -----------------------------
+app.listen(PORT, () => console.log(`✅ Server OK on port ${PORT}`));

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo, useCallback, memo } from 'react';
 import { api } from '../lib/api';
 import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
@@ -12,10 +12,10 @@ const NewsPage = () => {
 
     useEffect(() => { 
         api.getNews().then(setFeed);
-        fetch('/api/authors').then(r=>r.json()).then(setAuthors);
+        api.getAuthors().then(setAuthors);
     }, []);
 
-    const filtered = feed.filter(n => n.text.toLowerCase().includes(search.toLowerCase()) || n.name.toLowerCase().includes(search.toLowerCase()));
+    const filtered = useMemo(() => feed.filter(n => n.text.toLowerCase().includes(search.toLowerCase()) || (n.name && n.name.toLowerCase().includes(search.toLowerCase()))), [feed, search]);
 
     return (
         <motion.div initial={{opacity:0}} animate={{opacity:1}} className="min-h-screen bg-[var(--bg-main)] pt-14 pb-28 px-4 font-sans text-[var(--text-primary)] transition-colors duration-500">
@@ -76,7 +76,7 @@ const NewsPage = () => {
                         <p className="text-sm leading-relaxed text-[var(--text-primary)] mb-3">{post.text}</p>
                         
                         {post.image && <img src={post.image} className="mt-3 rounded-xl w-full border border-[var(--border)] object-cover max-h-64"/>}
-                        {post.btn_text && <button className="mt-4 w-full bg-blue-500/10 text-blue-500 font-bold py-2 rounded-xl text-xs uppercase hover:bg-blue-500 hover:text-white transition">{post.btn_text}</button>}
+                        {post.btn_text && <button onClick={(e) => {e.stopPropagation(); if(post.btn_link) {if(post.btn_link.startsWith('/')) navigate(post.btn_link); else window.open(post.btn_link, '_blank');}}} className="mt-4 w-full bg-blue-500/10 text-blue-500 font-bold py-2 rounded-xl text-xs uppercase hover:bg-blue-500 hover:text-white transition">{post.btn_text}</button>}
                     </motion.div>
                 ))}
             </div>

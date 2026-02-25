@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, memo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ShieldAlert, ArrowRight, Info, MapPin, X, Settings, Megaphone, Zap, Link, Star, AlertTriangle, Clock, Image as ImgIcon, Menu, CheckCircle, Flame } from 'lucide-react';
 import { api } from '../lib/api';
@@ -7,7 +7,7 @@ import { useNavigate } from 'react-router-dom';
 // --- WIDGETS ---
 const Icons = { Zap, Info, Shield: ShieldAlert, Link, Star, AlertTriangle, Clock };
 
-const StandardWidget = ({ w, onClick, className }) => {
+const StandardWidget = memo(({ w, onClick, className }) => {
     const Ico = Icons[w.icon] || Info;
     return (
         <motion.div whileTap={{ scale: 0.96 }} onClick={onClick} className={`glass-card p-6 flex flex-col justify-between h-44 cursor-pointer relative overflow-hidden ${className}`}>
@@ -21,9 +21,9 @@ const StandardWidget = ({ w, onClick, className }) => {
             </div>
         </motion.div>
     );
-};
+});
 
-const ImageWidget = ({ w, onClick, className }) => (
+const ImageWidget = memo(({ w, onClick, className }) => (
     <motion.div whileTap={{scale:0.96}} onClick={onClick} className={`glass-card relative overflow-hidden h-44 cursor-pointer group p-0 ${className}`}>
         <img src={w.image} className="absolute inset-0 w-full h-full object-cover opacity-80 transition duration-500 group-hover:scale-105"/>
         <div className="absolute inset-0 bg-gradient-to-t from-black via-black/40 to-transparent"/>
@@ -31,9 +31,9 @@ const ImageWidget = ({ w, onClick, className }) => (
             <h3 className="font-bold text-white text-xl shadow-black drop-shadow-lg">{w.title}</h3>
         </div>
     </motion.div>
-);
+));
 
-const ClockWidget = ({ w, className }) => {
+const ClockWidget = memo(({ w, className }) => {
     const [t, sT] = useState(new Date());
     useEffect(() => { const i = setInterval(() => sT(new Date()), 1000); return () => clearInterval(i); }, []);
     const m = new Date(t.toLocaleString("en-US", {timeZone: "Europe/Moscow"}));
@@ -43,7 +43,7 @@ const ClockWidget = ({ w, className }) => {
             <div className="text-5xl font-mono font-black text-[var(--text-primary)] tracking-widest">{m.getHours().toString().padStart(2,'0')}:{m.getMinutes().toString().padStart(2,'0')}</div>
         </div>
     );
-};
+});
 
 // --- PAGE COMPONENTS ---
 
@@ -219,7 +219,7 @@ const Home = ({ theme, toggleTheme }) => {
                     </div>
                 </div>
                 <p className="text-sm leading-relaxed text-[var(--text-dim)] line-clamp-3 mb-4">{n.text}</p>
-                {n.btn_text && <button className="w-full text-sm font-bold text-blue-400 bg-blue-500/10 px-4 py-3 rounded-xl text-center uppercase tracking-widest border border-blue-500/20 hover:bg-blue-500/20 transition-colors">{n.btn_text}</button>}
+                {n.btn_text && <button onClick={(e) => {e.stopPropagation(); if(n.btn_link) {if(n.btn_link.startsWith('/')) navigate(n.btn_link); else window.open(n.btn_link, '_blank');}}} className="w-full text-sm font-bold text-blue-400 bg-blue-500/10 px-4 py-3 rounded-xl text-center uppercase tracking-widest border border-blue-500/20 hover:bg-blue-500/20 transition-colors">{n.btn_text}</button>}
             </motion.div>
         ))}</div>
       </div>
@@ -238,10 +238,10 @@ const Home = ({ theme, toggleTheme }) => {
       
       <AnimatePresence>
         {showRegionModal && (
-            <motion.div initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}} className="fixed inset-0 z-[999] bg-black/60 backdrop-blur-xl flex items-end justify-center" onClick={() => setShowRegionModal(false)}>
-                <motion.div initial={{y:"100%"}} animate={{y:0}} exit={{y:"100%"}} transition={{type: 'spring', damping: 30, stiffness: 250}} className="w-full max-w-md bg-[var(--bg-card)] border-t border-[var(--border)] rounded-t-[40px] p-8 pb-16 shadow-2xl safe-area-bottom" onClick={e => e.stopPropagation()}>
+            <motion.div initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}} className="fixed inset-0 z-[9999] bg-black/60 backdrop-blur-xl flex items-end justify-center" onClick={() => setShowRegionModal(false)}>
+                <motion.div initial={{y:"100%"}} animate={{y:0}} exit={{y:"100%"}} transition={{type: 'spring', damping: 30, stiffness: 250}} className="w-full max-w-md bg-[var(--bg-card)] border-t border-[var(--border)] rounded-t-[40px] p-8 pb-32 shadow-2xl safe-area-bottom z-[10000]" onClick={e => e.stopPropagation()}>
                     <h3 className="text-3xl font-black text-[var(--text-primary)] mb-8 px-2 tracking-tight">Выберите город</h3>
-                    <div className="space-y-3 overflow-y-auto pr-2 max-h-[60vh]">{regionsList.map(r => (
+                    <div className="space-y-3 overflow-y-auto pr-2 max-h-[45vh]">{regionsList.map(r => (
                         <button key={r.id} onClick={() => selectRegion(r)} className={`w-full text-left p-5 rounded-[28px] border transition-all duration-300 flex justify-between items-center group ${currentRegion.id === r.id ? 'bg-blue-600 border-transparent text-white shadow-lg' : 'bg-[var(--bg-main)] border-[var(--border)] text-[var(--text-dim)] hover:border-white/20'}`}>
                             <div>
                                 <div className="font-bold text-lg">{r.name}</div>
