@@ -9,7 +9,7 @@ import ChartPage from './pages/Chart';
 import MapPage from './pages/Map';
 import NewsPage from './pages/News';
 import ReportPage from './pages/Report';
-import Admin from './pages/Admin';
+import Admin from './pages/Mapsandchart config';
 
 // FIX: The entire App component was accidentally deleted. This restores it.
 // This component now correctly handles routing and fetches necessary data.
