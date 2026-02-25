@@ -1,0 +1,5 @@
+@tailwind base; @tailwind components; @tailwind utilities;
+body{background:#000;color:#fff}
+.input-field { @apply w-full bg-[#1c1c1e] border border-[#333] text-white p-3 rounded-lg text-sm outline-none focus:border-blue-500 transition; }
+.label { @apply text-[10px] text-gray-500 uppercase font-bold mb-1.5 block tracking-wide; }
+::-webkit-scrollbar { width: 0px; }

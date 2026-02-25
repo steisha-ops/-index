@@ -1,0 +1,14 @@
+# Dependencies
+/node_modules
+
+# Build artifacts
+/dist
+
+# Log files
+*.log
+
+# OS-specific files
+.DS_Store
+
+# IDX-specific files
+.idx

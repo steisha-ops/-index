@@ -1,0 +1,6 @@
+{
+  "appId": "com.example.app",
+  "appName": "index-oblav-v6",
+  "webDir": "dist",
+  "bundledWebRuntime": false
+}

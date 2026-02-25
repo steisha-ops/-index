@@ -1,0 +1,9 @@
+{
+  "dependencies": {
+    "framer-motion": "^12.34.3",
+    "leaflet": "^1.9.4",
+    "rate-limit-sqlite": "^0.0.2",
+    "react-leaflet": "^5.0.0",
+    "recharts": "^3.7.0"
+  }
+}

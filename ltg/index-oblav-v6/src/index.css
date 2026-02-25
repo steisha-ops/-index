@@ -1,0 +1,92 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* Neon Glow Risk Colors */
+  --risk-red: 239, 68, 68;
+  --risk-orange: 249, 115, 22;
+  --risk-yellow: 234, 179, 8;
+  --risk-green: 34, 197, 94;
+
+  /* Base Theme (Dark) */
+  --bg-main: #000000;
+  --bg-card: #111111;
+  --text-primary: #ffffff;
+  --text-dim: #9ca3af;
+  --border: rgba(255, 255, 255, 0.1);
+  --glass: rgba(255, 255, 255, 0.05);
+}
+
+.light {
+  --bg-main: #f2f2f7;
+  --bg-card: #ffffff;
+  --text-primary: #000000;
+  --text-dim: #6b7280;
+  --border: rgba(0, 0, 0, 0.08);
+  --glass: rgba(255, 255, 255, 0.7);
+}
+
+body {
+  background-color: var(--bg-main);
+  color: var(--text-primary);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Helvetica Neue", sans-serif;
+  transition: background-color 0.5s ease, color 0.5s ease;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+@layer components {
+  /* Upgraded Glass Card with smoother transitions and hover effect */
+  .glass-card {
+    background-color: var(--bg-card);
+    border: 1px solid var(--border);
+    @apply backdrop-blur-xl rounded-[32px] shadow-lg;
+    transition: all 0.4s cubic-bezier(0.25, 0.8, 0.25, 1);
+  }
+
+  .glass-card:hover {
+    @apply shadow-2xl;
+    transform: translateY(-4px);
+    border-color: rgba(var(--risk-blue, 255, 255, 255), 0.25);
+  }
+}
+
+@layer utilities {
+  /* Custom Glow Effects */
+  .glow-red {
+    --glow-color: var(--risk-red);
+    box-shadow: 0 0 25px rgba(var(--glow-color), 0.4), 0 0 50px rgba(var(--glow-color), 0.25), inset 0 0 15px rgba(var(--glow-color), 0.1);
+    border-color: rgba(var(--glow-color), 0.5);
+  }
+  .glow-orange {
+    --glow-color: var(--risk-orange);
+    box-shadow: 0 0 25px rgba(var(--glow-color), 0.4), 0 0 50px rgba(var(--glow-color), 0.25), inset 0 0 15px rgba(var(--glow-color), 0.1);
+    border-color: rgba(var(--glow-color), 0.5);
+  }
+  .glow-yellow {
+    --glow-color: var(--risk-yellow);
+    box-shadow: 0 0 25px rgba(var(--glow-color), 0.4), 0 0 50px rgba(var(--glow-color), 0.25), inset 0 0 15px rgba(var(--glow-color), 0.1);
+    border-color: rgba(var(--glow-color), 0.5);
+  }
+  .glow-green {
+    --glow-color: var(--risk-green);
+    box-shadow: 0 0 25px rgba(var(--glow-color), 0.4), 0 0 50px rgba(var(--glow-color), 0.25), inset 0 0 15px rgba(var(--glow-color), 0.1);
+    border-color: rgba(var(--glow-color), 0.5);
+  }
+
+  /* Add tactile feedback to all buttons and links */
+  button, a {
+    @apply transition-all duration-200 ease-in-out;
+  }
+  
+  button:active, a:active {
+    @apply scale-95 opacity-80;
+  }
+  
+  .safe-area-bottom {
+    padding-bottom: env(safe-area-inset-bottom, 1rem);
+  }
+}
+
+::-webkit-scrollbar { width: 0; }
