@@ -11,9 +11,37 @@ const app = express();
 const PORT = 3001;
 const saltRounds = 10;
 
-app.use(compression({ level: 6, threshold: 1024 }));
+// Улучшенная компрессия + кэширование
+app.use(compression({ 
+    level: 9, 
+    threshold: 512,
+    filter: (req, res) => {
+        if (req.headers['x-no-compression']) return false;
+        return compression.filter(req, res);
+    }
+}));
+
+// Кэширование статика на 1 час
+app.use((req, res, next) => {
+    if (req.url.match(/\.(js|css|woff2|woff|ttf|font)$/)) {
+        res.set('Cache-Control', 'public, max-age=3600, immutable');
+    } else if (req.url.match(/\.(png|jpg|jpeg|gif|svg|webp|ico)$/)) {
+        res.set('Cache-Control', 'public, max-age=86400, immutable');
+    } else if (req.url === '/index.html' || req.url === '/') {
+        res.set('Cache-Control', 'public, max-age=3600');
+    } else {
+        res.set('Cache-Control', 'no-cache, must-revalidate');
+    }
+    next();
+});
+
 app.use(bodyParser.json({ limit: '50mb' }));
-app.use(cors());
+app.use(cors({
+    origin: '*',
+    methods: ['GET', 'POST', 'PUT', 'DELETE'],
+    credentials: false,
+    maxAge: 86400
+}));
 
 // ===== SECURITY =====
 const validateInput = (val, type = 'string', min = 0, max = Infinity) => {
@@ -48,19 +76,20 @@ app.use((req, res, next) => {
 // ===== CACHE =====
 const dataCache = new Map();
 const CACHE_TTL_MS = 60000;
+const EXTENDED_CACHE_TTL_MS = 300000; // 5 minutes для часто запрашиваемых данных
 
 const getCached = (key) => {
     const item = dataCache.get(key);
     if (!item) return null;
-    if (Date.now() - item.time > CACHE_TTL_MS) {
+    if (Date.now() - item.time > item.ttl) {
         dataCache.delete(key);
         return null;
     }
     return item.data;
 };
 
-const setCached = (key, data) => {
-    dataCache.set(key, { data, time: Date.now() });
+const setCached = (key, data, ttl = CACHE_TTL_MS) => {
+    dataCache.set(key, { data, time: Date.now(), ttl });
 };
 
 // Путь к базе
@@ -210,17 +239,26 @@ app.get('/api/region_data/:id', (req, res) => {
         // Try cache first
         const cached = getCached(cacheKey);
         if (cached) {
+            const etag = `"${Buffer.from(JSON.stringify(cached)).toString('base64').substring(0, 20)}"`;
+            res.set('ETag', etag);
+            res.set('Cache-Control', 'public, max-age=30, must-revalidate');
             return res.json(cached);
         }
         
-        // Query database with optimized select
+        // Query database with optimized select - параллельно загружаем регион и историю
         db.get("SELECT id, current_index FROM regions WHERE id=?", [regionId], (e, region) => {
-            if (e || !region) return res.json({region: null, history: []});
+            if (e || !region) {
+                res.json({region: null, history: []});
+                return;
+            }
             
-            // Use LIMIT for large datasets
-            db.all("SELECT date, value FROM history WHERE region_id=? ORDER BY date ASC LIMIT 365", [regionId], (e2, history) => {
-                const data = { region, history: history || [] };
-                setCached(cacheKey, data);
+            // Use LIMIT for large datasets - только последние 90 дней для быстрой загрузки
+            db.all("SELECT date, value FROM history WHERE region_id=? ORDER BY date DESC LIMIT 90", [regionId], (e2, history) => {
+                const data = { region, history: (history || []).reverse() };
+                setCached(cacheKey, data, EXTENDED_CACHE_TTL_MS);
+                const etag = `"${Buffer.from(JSON.stringify(data)).toString('base64').substring(0, 20)}"`;
+                res.set('ETag', etag);
+                res.set('Cache-Control', 'public, max-age=30, must-revalidate');
                 res.json(data);
             });
         });
@@ -254,7 +292,12 @@ app.delete('/api/widgets/:id', (req,res) => {
 app.get('/api/forecasts', (req, res) => {
     const cacheKey = 'forecasts';
     const cached = getCached(cacheKey);
-    if (cached) return res.json(cached);
+    if (cached) {
+        const etag = `"${Buffer.from(JSON.stringify(cached)).toString('base64').substring(0, 20)}"`;
+        res.set('ETag', etag);
+        res.set('Cache-Control', 'public, max-age=300, must-revalidate');
+        return res.json(cached);
+    }
     
     db.get("SELECT value FROM settings WHERE key='forecasts'", (err, row) => {
         if (err) {
@@ -268,13 +311,19 @@ app.get('/api/forecasts', (req, res) => {
                 { day: 'СБ', risk: 30, label: 'Низкий', icon: '✅' },
                 { day: 'ВС', risk: 20, label: 'Минимальный', icon: '✅' }
             ];
-            setCached(cacheKey, defaults);
+            setCached(cacheKey, defaults, EXTENDED_CACHE_TTL_MS);
+            const etag = `"${Buffer.from(JSON.stringify(defaults)).toString('base64').substring(0, 20)}"`;
+            res.set('ETag', etag);
+            res.set('Cache-Control', 'public, max-age=300, must-revalidate');
             return res.json(defaults);
         }
         if (row && row.value) {
             try {
                 const data = JSON.parse(row.value);
-                setCached(cacheKey, data);
+                setCached(cacheKey, data, EXTENDED_CACHE_TTL_MS);
+                const etag = `"${Buffer.from(JSON.stringify(data)).toString('base64').substring(0, 20)}"`;
+                res.set('ETag', etag);
+                res.set('Cache-Control', 'public, max-age=300, must-revalidate');
                 return res.json(data);
             } catch (e) {
                 console.error('JSON parse error:', e);
@@ -289,7 +338,10 @@ app.get('/api/forecasts', (req, res) => {
             { day: 'СБ', risk: 30, label: 'Низкий', icon: '✅' },
             { day: 'ВС', risk: 20, label: 'Минимальный', icon: '✅' }
         ];
-        setCached(cacheKey, defaults);
+        setCached(cacheKey, defaults, EXTENDED_CACHE_TTL_MS);
+        const etag = `"${Buffer.from(JSON.stringify(defaults)).toString('base64').substring(0, 20)}"`;
+        res.set('ETag', etag);
+        res.set('Cache-Control', 'public, max-age=300, must-revalidate');
         res.json(defaults);
     });
 });

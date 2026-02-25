@@ -5,11 +5,22 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { api } from './lib/api';
 
 import HomePage from './pages/Home';
-import ChartPage from './pages/Chart';
-import MapPage from './pages/Map';
-import NewsPage from './pages/News';
-import ReportPage from './pages/Report';
-import Admin from './pages/Mapsandchart config';
+
+// Lazy load heavy pages
+const ChartPage = lazy(() => import('./pages/Chart'));
+const MapPage = lazy(() => import('./pages/Map'));
+const NewsPage = lazy(() => import('./pages/News'));
+const ReportPage = lazy(() => import('./pages/Report'));
+const Admin = lazy(() => import('./pages/Mapsandchart config'));
+
+// Loading fallback
+const PageLoader = () => (
+    <div className="min-h-screen flex items-center justify-center">
+        <motion.div animate={{rotate: 360}} transition={{duration: 2, repeat: Infinity}}>
+            <div className="w-12 h-12 border-4 border-blue-500/20 border-t-blue-500 rounded-full"/>
+        </motion.div>
+    </div>
+);
 
 // FIX: The entire App component was accidentally deleted. This restores it.
 // This component now correctly handles routing and fetches necessary data.
@@ -48,11 +59,11 @@ const AppContent = ({ pages, theme, toggleTheme }) => {
                 <AnimatePresence mode="wait">
                     <Routes location={location} key={location.pathname}>
                         <Route path="/" element={<HomePage theme={theme} toggleTheme={toggleTheme} />} />
-                        <Route path="/chart" element={<ChartPage theme={theme} />} />
-                        <Route path="/map" element={<MapPage theme={theme} />} />
-                        <Route path="/news" element={<NewsPage theme={theme} />} />
-                        <Route path="/report" element={<ReportPage theme={theme} />} />
-                        <Route path="/admin" element={<Admin />} />
+                        <Route path="/chart" element={<Suspense fallback={<PageLoader />}><ChartPage theme={theme} /></Suspense>} />
+                        <Route path="/map" element={<Suspense fallback={<PageLoader />}><MapPage theme={theme} /></Suspense>} />
+                        <Route path="/news" element={<Suspense fallback={<PageLoader />}><NewsPage theme={theme} /></Suspense>} />
+                        <Route path="/report" element={<Suspense fallback={<PageLoader />}><ReportPage theme={theme} /></Suspense>} />
+                        <Route path="/admin" element={<Suspense fallback={<PageLoader />}><Admin /></Suspense>} />
                         <Route path="/author/:id" element={<AuthorProfile theme={theme} />} />
                         {pages.map(p => (
                             <Route key={p.id} path={`/${p.slug}`} element={<CustomPage theme={theme} title={p.title} content={p.content} />} />

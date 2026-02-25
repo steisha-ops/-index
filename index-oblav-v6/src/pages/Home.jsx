@@ -47,11 +47,16 @@ const ClockWidget = memo(({ w, className }) => {
 
 // --- PAGE COMPONENTS ---
 
-const MenuButton = ({ b, onClick }) => {
+const MenuButton = ({ b, onClick, onHover }) => {
     const isUrl = b.icon && (b.icon.startsWith('http') || b.icon.startsWith('data:'));
     const Ico = !isUrl ? (Icons[b.icon] || Info) : null;
     return (
-        <motion.button whileTap={{scale:0.95}} onClick={onClick} className="glass-card p-4 flex items-center gap-3 w-full text-left">
+        <motion.button 
+            whileTap={{scale:0.95}} 
+            onClick={onClick}
+            onMouseEnter={onHover}
+            className="glass-card p-4 flex items-center gap-3 w-full text-left"
+        >
             <div className="bg-[var(--bg-main)] p-2.5 rounded-xl text-blue-500 shadow-inner">
                 <div className="w-6 h-6 flex items-center justify-center">
                     {isUrl ? <img src={b.icon} className="w-5 h-5 object-contain"/> : <Ico size={20}/>}
@@ -123,6 +128,13 @@ const Home = ({ theme, toggleTheme }) => {
       }
       else if(link.startsWith('/')) navigate(link);
       else window.open(link, '_blank');
+  };
+  
+  // Prefetch Chart data при наведении
+  const prefetchChartData = () => {
+      const regionId = localStorage.getItem('user_region_id') || 1;
+      api.prefetch(`/api/region_data/${regionId}`, 'short');
+      api.prefetch('/api/forecasts', 'short');
   };
   
   const riskProfile = ticker >= 9 ? { t: 'text-red-400', b: 'rgb(var(--risk-red))', g: 'glow-red' } 
@@ -233,7 +245,14 @@ const Home = ({ theme, toggleTheme }) => {
       </motion.button>
       
       <div className="grid grid-cols-2 gap-4 mt-6">
-          {buttons.map(b => <MenuButton key={b.id} b={b} onClick={() => handleLink(b.link)} />)}
+          {buttons.map(b => (
+              <MenuButton 
+                  key={b.id} 
+                  b={b} 
+                  onClick={() => handleLink(b.link)}
+                  onHover={() => b.link === '/chart' && prefetchChartData()}
+              />
+          ))}
       </div>
       
       <AnimatePresence>

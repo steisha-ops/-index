@@ -83,10 +83,23 @@ body {
   button:active, a:active {
     @apply scale-95 opacity-80;
   }
-  
-  .safe-area-bottom {
-    padding-bottom: env(safe-area-inset-bottom, 1rem);
+
+  /* Gradient animation for text */
+  @keyframes gradient-shift {
+    0% { background-position: 200% 0%; }
+    100% { background-position: 0% 0%; }
+  }
+
+  .animate-gradient {
+    background-size: 200% 100%;
+    animation: gradient-shift 3s ease infinite;
   }
 }
 
-::-webkit-scrollbar { width: 0; }
+.safe-area-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 1rem);
+}
+
+::-webkit-scrollbar { 
+  width: 0; 
+}
