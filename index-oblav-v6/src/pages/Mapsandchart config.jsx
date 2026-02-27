@@ -1,4 +1,5 @@
-
+//неактив тест 
+import { useState, useEffect, useMemo } from 'react';
 import { api } from '../lib/api';
 import { GoogleMap, useJsApiLoader, MarkerF } from '@react-google-maps/api';
 
@@ -63,15 +64,23 @@ const Admin = () => {
         api.getMarkers().then(setMarkers);
     };
 
-    const saveSettings = () => {
-        api.saveSetting('index', index);
-        api.saveSetting('region', region);
-        alert('Сохранено');
+    const saveSettings = async () => {
+        await api.saveSetting('index', index);
+        await api.saveSetting('region', region);
+        // Очищаем кэш чтобы свежие данные загрузились
+        api.clearCache();
+        // Перезагружаем данные
+        await refresh();
+        alert('✅ Сохранено');
     };
 
     const editHistory = (date) => {
         const val = prompt('Новое значение для ' + date);
-        if(val) api.updateHistory(date, val).then(refresh);
+        if(val && !isNaN(parseFloat(val))) {
+            api.updateHistory(date, val).then(() => refresh()).catch(err => alert('❌ Ошибка: ' + err));
+        } else if(val) {
+            alert('❌ Введите число');
+        }
     };
     
     const deleteMarker = (id) => {
@@ -144,7 +153,7 @@ const Admin = () => {
                         <h2 className="text-2xl font-bold">Главная</h2>
                         <div className="bg-[#2c2c2e] p-5 rounded-xl">
                             <label className="block text-gray-400 mb-2">Индекс: {Number(index).toFixed(1)}</label>
-                            <input type="range" min="1" max="11" step="0.1" value={index} onChange={e=>setIndex(e.target.value)} className="w-full mb-4"/>
+                            <input type="range" min="1" max="11" step="0.1" value={index} onChange={e=>setIndex(parseFloat(e.target.value))} className="w-full mb-4"/>
                             <label className="block text-gray-400 mb-2">Регион</label>
                             <input value={region} onChange={e=>setRegion(e.target.value)} className="w-full bg-black/30 p-2 rounded mb-4"/>
                             <button onClick={saveSettings} className="bg-blue-600 px-4 py-2 rounded">Сохранить</button>

@@ -1,8 +1,9 @@
 import { useState, useEffect, memo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ShieldAlert, ArrowRight, Info, MapPin, X, Settings, Megaphone, Zap, Link, Star, AlertTriangle, Clock, Image as ImgIcon, Menu, CheckCircle, Flame } from 'lucide-react';
+import { ShieldAlert, ArrowRight, Info, MapPin, X, Settings, Megaphone, Zap, Link, Star, AlertTriangle, Clock, Image as ImgIcon, Menu, CheckCircle, Flame, Heart, LogOut } from 'lucide-react';
 import { api } from '../lib/api';
 import { useNavigate } from 'react-router-dom';
+import IntroOnboarding from '../components/IntroOnboarding';
 
 // --- WIDGETS ---
 const Icons = { Zap, Info, Shield: ShieldAlert, Link, Star, AlertTriangle, Clock };
@@ -67,7 +68,7 @@ const MenuButton = ({ b, onClick, onHover }) => {
     );
 };
 
-const Home = ({ theme, toggleTheme }) => {
+const Home = ({ theme, toggleTheme, onOpenConscienceCall }) => {
   const [ticker, setTicker] = useState(3.0);
   const [news, setNews] = useState([]);
   const [widgets, setWidgets] = useState([]);
@@ -78,7 +79,15 @@ const Home = ({ theme, toggleTheme }) => {
   const [regionsList, setRegionsList] = useState([]);
   const [showRegionModal, setShowRegionModal] = useState(false);
   const [activePopup, setActivePopup] = useState(null);
+  const [showIntro, setShowIntro] = useState(false);
+  const [isNoWeapons, setIsNoWeapons] = useState(false);
   const navigate = useNavigate();
+
+  // ПРОВЕРЬ!
+  useEffect(() => {
+    const isFirstVisit = !localStorage.getItem('app_intro_shown');
+    setShowIntro(isFirstVisit);
+  }, []);
 
   useEffect(() => {
     const load = async () => {
@@ -93,7 +102,7 @@ const Home = ({ theme, toggleTheme }) => {
             api.getNews().then(n => setNews(n.slice(0,2)));
             api.getButtons().then(setButtons);
             
-            // FIX: Use the new api functions to prevent crash
+            // вИджеты 
             api.getWidgets().then(setWidgets);
             api.getPopups().then(setPopups);
             api.getAuthors().then(setAuthors);
@@ -116,6 +125,23 @@ const Home = ({ theme, toggleTheme }) => {
       localStorage.setItem('user_region_id', reg.id);
       localStorage.setItem('user_region_data', JSON.stringify({lat: reg.lat, lng: reg.lng, zoom: reg.zoom}));
       if(close) setShowRegionModal(false);
+  };
+
+  // интро
+  const handleIntroComplete = () => {
+    localStorage.setItem('app_intro_shown', 'true');
+    setShowIntro(false);
+    // Диспатчим событие чтобы FloatingNav узнал об этом
+    window.dispatchEvent(new Event('intro_completed'));
+  };
+
+  // еще раз проверь
+  const handleLogout = () => {
+    if (confirm('Вернуться к приветствию?')) {
+      localStorage.removeItem('app_intro_shown');
+      setShowIntro(true);
+      window.dispatchEvent(new Event('intro_starting'));
+    }
   };
   
   const handleLink = (link) => {
@@ -142,7 +168,7 @@ const Home = ({ theme, toggleTheme }) => {
                       : ticker >= 4 ? { t: 'text-yellow-400', b: 'rgb(var(--risk-yellow))', g: 'glow-yellow' } 
                       : { t: 'text-green-400', b: 'rgb(var(--risk-green))', g: 'glow-green' };
 
-  // --- REPAIRED WIDGET RENDERING LOGIC ---
+  // ----_ REPAIRED WIDGET RENDERING LOGIC п=---
   const renderWidget = (w) => {
       const glowClassName = riskProfile.g;
       const props = { key: w.id, w, onClick: () => handleLink(w.link) };
@@ -170,18 +196,51 @@ const Home = ({ theme, toggleTheme }) => {
   };
 
   return (
-    <motion.div initial={{opacity:0}} animate={{opacity:1}} className="px-5 pt-14 pb-40 space-y-8 max-w-md mx-auto min-h-screen">
+    <>
+      <AnimatePresence>
+        {showIntro && <IntroOnboarding onComplete={handleIntroComplete} authors={authors} />}
+      </AnimatePresence>
+      <motion.div initial={{opacity:0}} animate={{opacity:1}} className="px-5 pt-14 pb-8 space-y-8 max-w-md mx-auto">
       <header className="flex justify-between items-center">
-          <div>
-              <h1 className="text-xl font-black tracking-widest text-[var(--text-primary)]">ИНДЕКС ОБЛАВ</h1>
+          <div className="flex-1">
+              <motion.h1 
+                onClick={() => setIsNoWeapons(!isNoWeapons)}
+                whileHover={{scale: 1.05}}
+                whileTap={{scale: 0.95}}
+                className={`text-xl font-black tracking-widest cursor-pointer transition-all duration-500 select-none ${
+                  isNoWeapons 
+                    ? 'text-red-600 drop-shadow-lg' 
+                    : 'text-[var(--text-primary)]'
+                }`}
+              >
+                <motion.span
+                  key={isNoWeapons ? 'noweapons' : 'index'}
+                  initial={{opacity: 0, y: -10}}
+                  animate={{opacity: 1, y: 0}}
+                  exit={{opacity: 0, y: 10}}
+                  transition={{duration: 0.4}}
+                >
+                  {isNoWeapons ? '🕊️ НЕТ ОРУЖИЮ' : 'ИНДЕКС ОБЛАВ'}
+                </motion.span>
+              </motion.h1>
               <div onClick={()=>setShowRegionModal(true)} className="flex items-center gap-2 mt-1 cursor-pointer opacity-80 hover:opacity-100 transition-opacity">
                   <MapPin size={12} className="text-blue-500"/>
                   <span className="text-xs font-bold text-[var(--text-dim)] uppercase tracking-wide">{currentRegion.name}</span>
                   <span className="text-[10px] text-blue-500">▼</span>
               </div>
           </div>
-          <div className={`w-14 h-14 glass-card rounded-2xl flex items-center justify-center ${riskProfile.g}`}>
-              <ShieldAlert size={24} className={riskProfile.t}/>
+          <div className="flex items-center gap-2">
+              <motion.button
+                whileTap={{scale: 0.9}}
+                onClick={handleLogout}
+                className="w-12 h-12 glass-card rounded-2xl flex items-center justify-center hover:bg-red-500/20 transition-colors group"
+                title="Вернуться к приветствию"
+              >
+                <LogOut size={20} className="text-red-500 group-hover:text-red-600 transition-colors" />
+              </motion.button>
+              <div className={`w-14 h-14 glass-card rounded-2xl flex items-center justify-center ${riskProfile.g}`}>
+                  <ShieldAlert size={24} className={riskProfile.t}/>
+              </div>
           </div>
       </header>
       
@@ -236,7 +295,21 @@ const Home = ({ theme, toggleTheme }) => {
         ))}</div>
       </div>
       
-      <motion.button whileTap={{scale:0.97}} onClick={()=>navigate('/report')} className="w-full py-6 rounded-[32px] flex flex-col items-center justify-center gap-2 bg-gradient-to-r from-red-500 to-orange-500 text-white shadow-lg shadow-orange-500/30 hover:shadow-red-500/40 transition-shadow">
+      <motion.button 
+        whileTap={{scale:0.97}} 
+        onClick={() => onOpenConscienceCall && onOpenConscienceCall()}
+        className={`w-full py-6 rounded-[32px] flex flex-col items-center justify-center gap-2 text-white shadow-lg shadow-pink-500/30 transition-all duration-300 hover:scale-[1.02] font-bold backdrop-blur-sm border-2 ${
+          'bg-gradient-to-r from-pink-500 via-rose-400 to-orange-400 border-pink-300/50 hover:shadow-xl hover:shadow-pink-500/50'
+        }`}
+      >
+          <div className="flex items-center gap-3">
+              <Heart size={24} className="animate-pulse drop-shadow-lg" />
+              <span className="font-black tracking-[0.2em] text-base drop-shadow-lg">ПРИЗЫВ К СОВЕСТИ</span>
+          </div>
+          <span className="text-[11px] text-white/80 font-bold uppercase tracking-widest drop-shadow-lg">Альтернативная гражданская служба</span>
+      </motion.button>
+      
+      <motion.button whileTap={{scale:0.97}} onClick={()=>navigate('/report')} className="w-full py-6 rounded-[32px] flex flex-col items-center justify-center gap-2 bg-gradient-to-r from-red-500 to-orange-500 text-white shadow-lg shadow-orange-500/30 hover:shadow-red-500/40 transition-shadow backdrop-blur-sm border-2 border-red-300/50">
           <div className="flex items-center gap-3">
               <Megaphone size={24} className="group-hover:animate-bounce" />
               <span className="font-black tracking-[0.2em] text-sm">СООБЩИТЬ ОБ ОБЛАВЕ</span>
@@ -273,19 +346,20 @@ const Home = ({ theme, toggleTheme }) => {
             </motion.div>
         )}
         {activePopup && (
-            <motion.div initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}} className="fixed inset-0 z-[999] bg-black/80 backdrop-blur-lg flex items-center justify-center p-6" onClick={()=>setActivePopup(null)}>
-                <motion.div initial={{scale:0.9, opacity:0}} animate={{scale:1, opacity:1}} exit={{scale:0.9, opacity:0}} transition={{type:'spring', damping:20, stiffness:200}} className="w-full max-w-sm glass-card p-0 overflow-hidden shadow-2xl" onClick={e=>e.stopPropagation()}>
+            <motion.div initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}} className={`fixed inset-0 z-[20000] flex items-center justify-center p-6 pointer-events-auto ${theme === 'light' ? 'bg-black/50 backdrop-blur-lg' : 'bg-black/80 backdrop-blur-lg'}`} onClick={()=>setActivePopup(null)}>
+                <motion.div initial={{scale:0.9, opacity:0}} animate={{scale:1, opacity:1}} exit={{scale:0.9, opacity:0}} transition={{type:'spring', damping:20, stiffness:200}} className={`w-full max-w-sm p-0 overflow-hidden shadow-2xl rounded-3xl border ${theme === 'light' ? 'bg-white text-black border-gray-200' : 'glass-card border-white/10'}`} onClick={e=>e.stopPropagation()}>
                     {activePopup.image && <div className="h-48 w-full relative"><img src={activePopup.image} className="w-full h-full object-cover"/></div>}
                     <div className="p-8 text-center">
-                        <h3 className="text-2xl font-black mb-3 text-[var(--text-primary)]">{activePopup.title}</h3>
-                        <p className="text-[var(--text-dim)] text-sm mb-8 leading-relaxed font-medium">{activePopup.text}</p>
-                        <button onClick={()=>setActivePopup(null)} className="w-full bg-[var(--text-primary)] text-[var(--bg-main)] py-4 rounded-2xl font-bold text-lg">OK</button>
+                        <h3 className={`text-2xl font-black mb-3 ${theme === 'light' ? 'text-black' : 'text-[var(--text-primary)]'}`}>{activePopup.title}</h3>
+                        <p className={`text-sm mb-8 leading-relaxed font-medium ${theme === 'light' ? 'text-gray-600' : 'text-[var(--text-dim)]'}`}>{activePopup.text}</p>
+                        <button onClick={()=>setActivePopup(null)} className={`w-full py-4 rounded-2xl font-bold text-lg transition-colors ${theme === 'light' ? 'bg-blue-600 text-white hover:bg-blue-700' : 'bg-[var(--text-primary)] text-[var(--bg-main)] hover:opacity-90'}`}>OK</button>
                     </div>
                 </motion.div>
             </motion.div>
         )}
       </AnimatePresence>
     </motion.div>
+    </>
   );
 };
 export default Home;

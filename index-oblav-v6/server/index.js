@@ -30,7 +30,10 @@ app.use((req, res, next) => {
     } else if (req.url === '/index.html' || req.url === '/') {
         res.set('Cache-Control', 'public, max-age=3600');
     } else {
-        res.set('Cache-Control', 'no-cache, must-revalidate');
+        // API endpoints - НИКОГДА НЕ КЭШИРУЕМ!
+        res.set('Cache-Control', 'no-cache, no-store, must-revalidate, max-age=0');
+        res.set('Pragma', 'no-cache');
+        res.set('Expires', '0');
     }
     next();
 });
@@ -75,8 +78,9 @@ app.use((req, res, next) => {
 
 // ===== CACHE =====
 const dataCache = new Map();
-const CACHE_TTL_MS = 60000;
-const EXTENDED_CACHE_TTL_MS = 300000; // 5 minutes для часто запрашиваемых данных
+const CACHE_TTL_MS = 5000; // 5 seconds для обычных данных
+const EXTENDED_CACHE_TTL_MS = 2000; // 2 seconds для region_data (очень короткий чтобы избежать рассинхронизации)
+const SHORT_CACHE_TTL_MS = 1000; // 1 second для region_data при изменении
 
 const getCached = (key) => {
     const item = dataCache.get(key);
@@ -119,7 +123,8 @@ function initDb() {
         `CREATE TABLE IF NOT EXISTS markers (id INTEGER PRIMARY KEY, lat REAL, lng REAL, desc TEXT)`,
         `CREATE TABLE IF NOT EXISTS notifications (id INTEGER PRIMARY KEY, title TEXT, body TEXT, type TEXT)`,
         `CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)`,
-        `CREATE TABLE IF NOT EXISTS reports (id INTEGER PRIMARY KEY, text TEXT, image TEXT, created_at TEXT)`
+        `CREATE TABLE IF NOT EXISTS reports (id INTEGER PRIMARY KEY, text TEXT, image TEXT, created_at TEXT)`,
+        `CREATE TABLE IF NOT EXISTS conscience_history (id INTEGER PRIMARY KEY, title TEXT, text TEXT, icon TEXT, image TEXT, _order INTEGER DEFAULT 0, enabled INTEGER DEFAULT 1)`
     ];
     schema.forEach(sql => db.run(sql));
     
@@ -169,6 +174,13 @@ function initDb() {
             db.run("INSERT INTO buttons (label, icon, link) VALUES (?,?,?)", ['Help', 'Zap', 'popup:1']);
             db.run("INSERT INTO popups (title, text) VALUES (?,?)", ['Info', 'Test Popup']);
 
+            // История Совести - инициализируем записи
+            const conscience = db.prepare("INSERT INTO conscience_history (title, text, icon, image, _order, enabled) VALUES (?,?,?,?,?,?)");
+            conscience.run('Право на выбор', 'Каждый гражданин имеет право выбора пути служения своей стране в соответствии со своей совестью', '🕊️', null, 0, 1);
+            conscience.run('Альтернативная служба', 'Альтернативная гражданская служба (АГС) - это форма исполнения гражданской функции госуда вместо военной службы', '⚖️', null, 1, 1);
+            conscience.run('За мир', 'Мы работаем над тем, чтобы каждый человек смог выбрать достойный путь', '🤝', null, 2, 1);
+            conscience.finalize();
+
             console.log("✅ Seeding completed.");
         } else {
             console.log("✅ Database already has data (regions count:", r?.c, ")");
@@ -204,7 +216,7 @@ app.get('/api/regions', (req, res) => {
     });
 });
 app.get('/api/news', get("SELECT news.id, news.author_id, news.text, news.image, news.date, news.btn_text, news.btn_link, authors.name, authors.handle, authors.avatar, authors.is_verified FROM news LEFT JOIN authors ON news.author_id = authors.id ORDER BY news.id DESC LIMIT 50", 'news'));
-app.get('/api/widgets', get("SELECT id, type, title, text, color, icon, link, image, is_wide FROM widgets LIMIT 100", 'widgets'));
+app.get('/api/widgets', get("SELECT id, type, title, text, color, icon, link, image, is_wide, sub_widgets FROM widgets LIMIT 100", 'widgets'));
 app.get('/api/buttons', get("SELECT * FROM buttons LIMIT 50", 'buttons'));
 app.get('/api/popups', get("SELECT * FROM popups LIMIT 50", 'popups'));
 app.get('/api/pages', get("SELECT id, slug, title, is_hidden FROM pages WHERE is_hidden=0 LIMIT 50", 'pages'));
@@ -234,35 +246,37 @@ app.get('/api/authors/:id', (req, res) => {
 app.get('/api/region_data/:id', (req, res) => {
     try {
         const regionId = validateInput(req.params.id, 'number', 1, 10000);
-        const cacheKey = `region_${regionId}`;
         
-        // Try cache first
-        const cached = getCached(cacheKey);
-        if (cached) {
-            const etag = `"${Buffer.from(JSON.stringify(cached)).toString('base64').substring(0, 20)}"`;
-            res.set('ETag', etag);
-            res.set('Cache-Control', 'public, max-age=30, must-revalidate');
-            return res.json(cached);
-        }
+        // НЕ используем КЕША для region_data - ВСЕГДА свежие данные из БД!
+        console.log(`🔄 [DB QUERY] region_${regionId} (no cache)`);
         
-        // Query database with optimized select - параллельно загружаем регион и историю
+        // Query database - параллельно загружаем регион и историю
         db.get("SELECT id, current_index FROM regions WHERE id=?", [regionId], (e, region) => {
             if (e || !region) {
+                console.log(`❌ [ERROR] Region ${regionId} not found`);
                 res.json({region: null, history: []});
                 return;
             }
             
             // Use LIMIT for large datasets - только последние 90 дней для быстрой загрузки
-            db.all("SELECT date, value FROM history WHERE region_id=? ORDER BY date DESC LIMIT 90", [regionId], (e2, history) => {
-                const data = { region, history: (history || []).reverse() };
-                setCached(cacheKey, data, EXTENDED_CACHE_TTL_MS);
-                const etag = `"${Buffer.from(JSON.stringify(data)).toString('base64').substring(0, 20)}"`;
-                res.set('ETag', etag);
-                res.set('Cache-Control', 'public, max-age=30, must-revalidate');
-                res.json(data);
+            db.all("SELECT date, value FROM history WHERE region_id=? ORDER BY date DESC LIMIT 90", [regionId], (e2, historyData) => {
+                if (e2) {
+                    console.log(`❌ [ERROR] History query failed:`, e2);
+                    res.json({region, history: []});
+                    return;
+                }
+                
+                const responseData = { 
+                    region, 
+                    history: (historyData || []).reverse(),
+                    _timestamp: Date.now()  // Добавляем timestamp для отслеживания версии данных
+                };
+                console.log(`✅ [DATA LOADED] region_${regionId} | index=${region.current_index} | history=${historyData?.length || 0} items | @${new Date().toISOString()}`);
+                res.json(responseData);
             });
         });
     } catch(e) {
+        console.log(`❌ [ERROR]`, e.message);
         res.status(400).json({error: e.message});
     }
 });
@@ -273,9 +287,9 @@ app.get('/api/notifications/poll', (req, res) => {
 
 // WIDGETS
 app.post('/api/widgets', (req,res) => {
-    const { type, title, text, color, icon, is_wide } = req.body;
-    const sql = "INSERT INTO widgets (type, title, text, color, icon, is_wide) VALUES (?,?,?,?,?,?)";
-    db.run(sql, [type, title, text, color, icon, is_wide ? 1 : 0], function() {
+    const { type, title, text, color, icon, is_wide, image, link, indicator, shadow, vibration, sub_widgets } = req.body;
+    const sql = "INSERT INTO widgets (type, title, text, color, icon, is_wide, image, link, sub_widgets) VALUES (?,?,?,?,?,?,?,?,?)";
+    db.run(sql, [type, title, text, color, icon, is_wide ? 1 : 0, image || null, link || null, sub_widgets ? JSON.stringify(sub_widgets) : null], function() {
         dataCache.delete('widgets');
         res.json({ok:true, id:this.lastID});
     });
@@ -284,6 +298,25 @@ app.post('/api/widgets', (req,res) => {
 app.delete('/api/widgets/:id', (req,res) => {
     db.run("DELETE FROM widgets WHERE id=?", [req.params.id], ()=> {
         dataCache.delete('widgets');
+        res.json({ok:true});
+    });
+});
+
+// PAGES (HTML)
+app.post('/api/pages', (req,res) => {
+    const { slug, title, content } = req.body;
+    if (!slug || !title) return res.status(400).json({ error: 'Missing slug or title' });
+    
+    const sql = "INSERT INTO pages (slug, title, content, is_hidden) VALUES (?,?,?,?)";
+    db.run(sql, [slug, title, content || '', 0], function() {
+        dataCache.delete('pages');
+        res.json({ok:true, id:this.lastID});
+    });
+});
+
+app.delete('/api/pages/:id', (req,res) => {
+    db.run("DELETE FROM pages WHERE id=?", [req.params.id], ()=> {
+        dataCache.delete('pages');
         res.json({ok:true});
     });
 });
@@ -374,26 +407,152 @@ app.get('/api/debug/db', (req, res) => {
 });
 
 // WRITE (CRUD)
-app.post('/api/regions', (req, res) => db.run("INSERT INTO regions (name, lat, lng, zoom, current_index) VALUES (?,?,?,?,3.0)", [req.body.name, req.body.lat, req.body.lng, req.body.zoom], function(){
-    // Auto-history for new region
-    const id = this.lastID;
-    const stmt = db.prepare("INSERT INTO history (region_id, date, value) VALUES (?,?,?)");
-    const today = new Date();
-    for(let i=180; i>=0; i--) {
-        const d = new Date(today);
-        d.setDate(d.getDate() - i);
-        stmt.run(id, d.toISOString().split('T')[0], (3.0).toFixed(2));
+// BUTTONS
+app.post('/api/buttons', (req,res) => {
+    try {
+        const { label, icon, link } = req.body;
+        if (!label || !link) return res.status(400).json({ error: 'Missing label or link' });
+        
+        db.run("INSERT INTO buttons (label, icon, link) VALUES (?,?,?)", [label, icon || 'Info', link], function(err) {
+            if (err) return res.status(500).json({ error: 'Failed to create button: ' + err.message });
+            dataCache.delete('buttons');
+            res.json({ok:true, id:this.lastID});
+        });
+    } catch(e) {
+        res.status(400).json({error: e.message});
     }
-    stmt.finalize();
-    res.json({ok:true});
-}));
-app.delete('/api/regions/:id', (req,res) => { db.run("DELETE FROM regions WHERE id=?",[req.params.id]); db.run("DELETE FROM history WHERE region_id=?",[req.params.id]); res.json({ok:true}); });
+});
+
+app.delete('/api/buttons/:id', (req,res) => {
+    try {
+        const id = validateInput(req.params.id, 'number', 1, 10000);
+        db.run("DELETE FROM buttons WHERE id=?", [id], function(err) {
+            if (err) return res.status(500).json({ error: 'Failed to delete button: ' + err.message });
+            dataCache.delete('buttons');
+            res.json({ok:true});
+        });
+    } catch(e) {
+        res.status(400).json({error: e.message});
+    }
+});
+
+// POPUPS
+app.post('/api/popups', (req,res) => {
+    try {
+        const { title, text, image } = req.body;
+        if (!title) return res.status(400).json({ error: 'Missing title' });
+        
+        db.run("INSERT INTO popups (title, text, image) VALUES (?,?,?)", [title, text || '', image || null], function(err) {
+            if (err) return res.status(500).json({ error: 'Failed to create popup: ' + err.message });
+            dataCache.delete('popups');
+            res.json({ok:true, id:this.lastID});
+        });
+    } catch(e) {
+        res.status(400).json({error: e.message});
+    }
+});
+
+app.delete('/api/popups/:id', (req,res) => {
+    try {
+        const id = validateInput(req.params.id, 'number', 1, 10000);
+        db.run("DELETE FROM popups WHERE id=?", [id], function(err) {
+            if (err) return res.status(500).json({ error: 'Failed to delete popup: ' + err.message });
+            dataCache.delete('popups');
+            res.json({ok:true});
+        });
+    } catch(e) {
+        res.status(400).json({error: e.message});
+    }
+});
+
+// REGIONS
+app.post('/api/regions', (req,res) => {
+    try {
+        const { name, lat, lng, zoom } = req.body;
+        if (!name || !lat || !lng || !zoom) return res.status(400).json({ error: 'Missing required fields' });
+        
+        const latitude = validateInput(lat, 'number', -90, 90);
+        const longitude = validateInput(lng, 'number', -180, 180);
+        const zoomLevel = validateInput(zoom, 'number', 1, 20);
+        
+        db.run("INSERT INTO regions (name, lat, lng, zoom, current_index) VALUES (?,?,?,?,3.0)", [name, latitude, longitude, zoomLevel], function(err) {
+            if (err) return res.status(500).json({ error: 'Failed to create region: ' + err.message });
+            
+            // Auto-history for new region
+            const id = this.lastID;
+            const stmt = db.prepare("INSERT INTO history (region_id, date, value) VALUES (?,?,?)");
+            const today = new Date();
+            for(let i=180; i>=0; i--) {
+                const d = new Date(today);
+                d.setDate(d.getDate() - i);
+                stmt.run(id, d.toISOString().split('T')[0], (3.0).toFixed(2));
+            }
+            stmt.finalize();
+            
+            dataCache.delete('regions_list');
+            res.json({ok:true, id:this.lastID});
+        });
+    } catch(e) {
+        res.status(400).json({error: e.message});
+    }
+});
+
+app.delete('/api/regions/:id', (req,res) => {
+    try {
+        const id = validateInput(req.params.id, 'number', 1, 10000);
+        db.run("DELETE FROM regions WHERE id=?", [id], function(err) {
+            if (err) return res.status(500).json({ error: 'Failed to delete region: ' + err.message });
+            db.run("DELETE FROM history WHERE region_id=?", [id], (err2) => {
+                if (err2) console.error("Warning: failed to delete history:", err2);
+                dataCache.delete('regions_list');
+                dataCache.delete(`region_${id}`);
+                res.json({ok:true});
+            });
+        });
+    } catch(e) {
+        res.status(400).json({error: e.message});
+    }
+});
 
 app.post('/api/update_region_index', (req, res) => {
     try {
         const id = validateInput(req.body.id, 'number', 1, 10000);
         const value = validateInput(req.body.value, 'number', 0.1, 11);
-        db.run("UPDATE regions SET current_index=? WHERE id=?", [value, id], ()=>res.json({ok:true}));
+        
+        // Проверяем, существует ли регион
+        db.get("SELECT id FROM regions WHERE id=?", [id], (err, region) => {
+            if (err) return res.status(500).json({error: "Database error: " + err.message});
+            if (!region) return res.status(404).json({error: "Region not found"});
+            
+            // Обновляем индекс с обработкой ошибок
+            db.run("UPDATE regions SET current_index=? WHERE id=?", [value, id], function(err) {
+                if (err) return res.status(500).json({error: "Update failed: " + err.message});
+                if (this.changes === 0) return res.status(400).json({error: "No rows updated"});
+                
+                // Инвалидируем кеш ПОЛНОСТЬЮ и логируем
+                dataCache.delete(`region_${id}`);
+                dataCache.delete('regions_list');
+                console.log(`🗑️ [CACHE CLEARED] region_${id} - index updated from unknown to ${value}`);
+                
+                // ВАЖНО: Загружаем свежие данные и возвращаем их клиенту
+                db.get("SELECT id, current_index FROM regions WHERE id=?", [id], (e2, updatedRegion) => {
+                    if (e2) return res.status(500).json({ok:true, message: `Index updated to ${value}`});
+                    
+                    // Загружаем историю
+                    db.all("SELECT date, value FROM history WHERE region_id=? ORDER BY date DESC LIMIT 90", [id], (e3, history) => {
+                        const responseData = {
+                            ok: true,
+                            message: `Index updated to ${value}`,
+                            region: updatedRegion,
+                            history: (history || []).reverse(),
+                            _timestamp: Date.now()  // Timestamp для отслеживания версии
+                        };
+                        console.log(`✅ [INDEX UPDATED] region_${id} | new index=${updatedRegion.current_index} | @${new Date().toISOString()}`);
+                        res.json(responseData);
+                    });
+                });
+            });
+        });
     } catch(e) {
         res.status(400).json({error: e.message});
     }
@@ -405,19 +564,67 @@ app.post('/api/update_region_history', (req, res) => {
         const date = validateInput(req.body.date, 'string', 8, 20);
         const value = validateInput(req.body.value, 'number', 0.1, 11);
         if (!/^\d{4}-\d{2}-\d{2}/.test(date)) throw new Error('Invalid date format');
-        db.run("DELETE FROM history WHERE region_id=? AND date LIKE ?", [id, `${date}%`], () => {
-            db.run("INSERT INTO history (region_id, date, value) VALUES (?,?,?)", [id, date, value], ()=>res.json({ok:true}));
+        
+        // Проверяем, существует ли регион
+        db.get("SELECT id FROM regions WHERE id=?", [id], (err, region) => {
+            if (err) return res.status(500).json({error: "Database error: " + err.message});
+            if (!region) return res.status(404).json({error: "Region not found"});
+            
+            // Удаляем старое значение за эту дату
+            db.run("DELETE FROM history WHERE region_id=? AND date LIKE ?", [id, `${date}%`], (err) => {
+                if (err) return res.status(500).json({error: "Delete failed: " + err.message});
+                
+                // Вставляем новое значение
+                db.run("INSERT INTO history (region_id, date, value) VALUES (?,?,?)", [id, date, value], function(err) {
+                    if (err) return res.status(500).json({error: "Insert failed: " + err.message});
+                    
+                    // Инвалидируем кеш и логируем
+                    dataCache.delete(`region_${id}`);
+                    console.log(`🗑️ [CACHE CLEARED] region_${id} - history updated for ${date}`);
+                    
+                    // ВАЖНО: Загружаем свежие данные и возвращаем их
+                    db.all("SELECT date, value FROM history WHERE region_id=? ORDER BY date DESC LIMIT 90", [id], (e2, history) => {
+                        const responseData = {
+                            ok: true,
+                            message: `History updated for ${date}`,
+                            history: (history || []).reverse()
+                        };
+                        res.json(responseData);
+                    });
+                });
+            });
         });
     } catch(e) {
         res.status(400).json({error: e.message});
     }
 });
+
 app.post('/api/delete_history_day', (req, res) => {
     try {
         const region_id = validateInput(req.body.region_id, 'number', 1, 10000);
         const date = validateInput(req.body.date, 'string', 8, 20);
         if (!/^\d{4}-\d{2}-\d{2}/.test(date)) throw new Error('Invalid date format');
-        db.run("DELETE FROM history WHERE region_id=? AND date LIKE ?", [region_id, `${date}%`], ()=>res.json({ok:true}));
+        
+        db.get("SELECT id FROM regions WHERE id=?", [region_id], (err, region) => {
+            if (err) return res.status(500).json({error: "Database error: " + err.message});
+            if (!region) return res.status(404).json({error: "Region not found"});
+            
+            db.run("DELETE FROM history WHERE region_id=? AND date LIKE ?", [region_id, `${date}%`], function(err) {
+                if (err) return res.status(500).json({error: "Delete failed: " + err.message});
+                
+                // Инвалидируем кеш
+                dataCache.delete(`region_${region_id}`);
+                
+                // ВАЖНО: Загружаем свежие данные и возвращаем
+                db.all("SELECT date, value FROM history WHERE region_id=? ORDER BY date DESC LIMIT 90", [region_id], (e2, history) => {
+                    res.json({
+                        ok: true,
+                        message: `Day ${date} deleted`,
+                        history: (history || []).reverse()
+                    });
+                });
+            });
+        });
     } catch(e) {
         res.status(400).json({error: e.message});
     }
@@ -426,22 +633,111 @@ app.post('/api/delete_history_day', (req, res) => {
 app.post('/api/shift_day', (req, res) => {
     try {
         const region_id = validateInput(req.body.region_id, 'number', 1, 10000);
-        db.get("SELECT MAX(date) as last FROM history WHERE region_id=?", [region_id], (e,r)=>{
-            if(!r) return res.json({ok:false});
-            const next = new Date(r.last); next.setDate(next.getDate()+1);
-            db.run("DELETE FROM history WHERE region_id=? AND date = (SELECT MIN(date) FROM history WHERE region_id=?)", [region_id, region_id]);
-            db.run("INSERT INTO history (region_id, date, value) SELECT ?,?,value FROM history WHERE region_id=? ORDER BY date DESC LIMIT 1", [region_id, next.toISOString().split('T')[0], region_id], ()=>res.json({ok:true}));
+        
+        db.get("SELECT id FROM regions WHERE id=?", [region_id], (err, region) => {
+            if (err) return res.status(500).json({error: "Database error: " + err.message});
+            if (!region) return res.status(404).json({error: "Region not found"});
+            
+            // Получаем последнюю дату
+            db.get("SELECT MAX(date) as last FROM history WHERE region_id=?", [region_id], (e, r) => {
+                if (e) return res.status(500).json({error: "Query error: " + e.message});
+                if (!r || !r.last) return res.status(400).json({error: "No history data"});
+                
+                const next = new Date(r.last);
+                next.setDate(next.getDate() + 1);
+                const nextDateStr = next.toISOString().split('T')[0];
+                
+                // Удаляем самый старый день
+                db.run("DELETE FROM history WHERE region_id=? AND date = (SELECT MIN(date) FROM history WHERE region_id=?)", [region_id, region_id], (err) => {
+                    if (err) return res.status(500).json({error: "Delete failed: " + err.message});
+                    
+                    // Добавляем новый день с последним значением
+                    db.run("INSERT INTO history (region_id, date, value) SELECT ?,?,value FROM history WHERE region_id=? ORDER BY date DESC LIMIT 1", 
+                        [region_id, nextDateStr, region_id], function(err) {
+                            if (err) return res.status(500).json({error: "Insert failed: " + err.message});
+                            
+                            // Инвалидируем кеш
+                            dataCache.delete(`region_${region_id}`);
+                            
+                            // ВАЖНО: Загружаем свежие данные и возвращаем
+                            db.all("SELECT date, value FROM history WHERE region_id=? ORDER BY date DESC LIMIT 90", [region_id], (e2, history) => {
+                                res.json({
+                                    ok: true,
+                                    message: `Day shifted to ${nextDateStr}`,
+                                    history: (history || []).reverse()
+                                });
+                            });
+                        }
+                    );
+                });
+            });
         });
     } catch(e) {
         res.status(400).json({error: e.message});
     }
 });
 
-app.post('/api/news', (req,res) => db.run("INSERT INTO news (author_id,text,image,date,btn_text,btn_link,tags,is_highlighted) VALUES (?,?,?,?,?,?,?,?)", [req.body.author_id,req.body.text,req.body.image,new Date().toISOString(),req.body.btn_text,req.body.btn_link,req.body.tags,req.body.is_highlighted?1:0], ()=>{ cache.news = null; res.json({ok:true});}));
-app.delete('/api/news/:id', (req,res) => db.run("DELETE FROM news WHERE id=?", [req.params.id], ()=>{ cache.news = null; res.json({ok:true});}));
+app.post('/api/news', (req,res) => {
+    try {
+        const { author_id, text, image, btn_text, btn_link, tags, is_highlighted } = req.body;
+        if (!author_id || !text) return res.status(400).json({ error: 'Missing author_id or text' });
+        
+        db.run("INSERT INTO news (author_id,text,image,date,btn_text,btn_link,tags,is_highlighted) VALUES (?,?,?,?,?,?,?,?)", 
+            [author_id, text, image || null, new Date().toISOString(), btn_text || null, btn_link || null, tags || null, is_highlighted?1:0], 
+            function(err) {
+                if (err) return res.status(500).json({ error: 'Failed to create news: ' + err.message });
+                dataCache.delete('news');
+                res.json({ok:true, id:this.lastID});
+            }
+        );
+    } catch(e) {
+        res.status(400).json({error: e.message});
+    }
+});
 
-app.post('/api/authors', (req,res) => db.run("INSERT INTO authors (name,handle,avatar,bio,is_verified) VALUES (?,?,?,?,?)", [req.body.name,req.body.handle,req.body.avatar,req.body.bio,req.body.is_verified?1:0], ()=>{ cache.authors = null; res.json({ok:true});}));
-app.delete('/api/authors/:id', (req,res) => db.run("DELETE FROM authors WHERE id=?", [req.params.id], ()=>res.json({ok:true})));
+app.delete('/api/news/:id', (req,res) => {
+    try {
+        const id = validateInput(req.params.id, 'number', 1, 1000000);
+        db.run("DELETE FROM news WHERE id=?", [id], function(err) {
+            if (err) return res.status(500).json({ error: 'Failed to delete news: ' + err.message });
+            dataCache.delete('news');
+            res.json({ok:true});
+        });
+    } catch(e) {
+        res.status(400).json({error: e.message});
+    }
+});
+
+app.post('/api/authors', (req,res) => {
+    try {
+        const { name, handle, avatar, bio, is_verified } = req.body;
+        if (!name) return res.status(400).json({ error: 'Missing name' });
+        
+        db.run("INSERT INTO authors (name,handle,avatar,bio,is_verified) VALUES (?,?,?,?,?)", 
+            [name, handle || null, avatar || null, bio || null, is_verified?1:0], 
+            function(err) {
+                if (err) return res.status(500).json({ error: 'Failed to create author: ' + err.message });
+                dataCache.delete('authors_list');
+                res.json({ok:true, id:this.lastID});
+            }
+        );
+    } catch(e) {
+        res.status(400).json({error: e.message});
+    }
+});
+
+app.delete('/api/authors/:id', (req,res) => {
+    try {
+        const id = validateInput(req.params.id, 'number', 1, 1000000);
+        db.run("DELETE FROM authors WHERE id=?", [id], function(err) {
+            if (err) return res.status(500).json({ error: 'Failed to delete author: ' + err.message });
+            dataCache.delete('authors_list');
+            res.json({ok:true});
+        });
+    } catch(e) {
+        res.status(400).json({error: e.message});
+    }
+});
 
 // --- NEW AUTHOR AUTH ---
 app.post('/api/author/set-password', (req, res) => {
@@ -508,11 +804,50 @@ app.post('/api/author/login', (req, res) => {
     });
 });
 
-// --- ENDPOINTS ---
-app.post('/api/markers', (req,res) => db.run("INSERT INTO markers (lat,lng,desc) VALUES (?,?,?)", [req.body.lat,req.body.lng,req.body.desc], ()=>res.json({ok:true})));
-app.delete('/api/markers/:id', (req,res) => db.run("DELETE FROM markers WHERE id=?", [req.params.id], ()=>res.json({ok:true})));
+// MARKERS
+app.post('/api/markers', (req,res) => {
+    try {
+        const { lat, lng, desc } = req.body;
+        if (lat === undefined || lng === undefined) return res.status(400).json({ error: 'Missing lat or lng' });
+        
+        const latitude = validateInput(lat, 'number', -90, 90);
+        const longitude = validateInput(lng, 'number', -180, 180);
+        
+        db.run("INSERT INTO markers (lat,lng,desc) VALUES (?,?,?)", [latitude, longitude, desc || ''], function(err) {
+            if (err) return res.status(500).json({ error: 'Failed to create marker: ' + err.message });
+            res.json({ok:true, id:this.lastID});
+        });
+    } catch(e) {
+        res.status(400).json({error: e.message});
+    }
+});
 
-app.post('/api/notify', (req,res) => db.run("INSERT INTO notifications (title,body,type) VALUES (?,?,?)", [req.body.title,req.body.body,req.body.type], ()=>res.json({ok:true})));
+app.delete('/api/markers/:id', (req,res) => {
+    try {
+        const id = validateInput(req.params.id, 'number', 1, 1000000);
+        db.run("DELETE FROM markers WHERE id=?", [id], function(err) {
+            if (err) return res.status(500).json({ error: 'Failed to delete marker: ' + err.message });
+            res.json({ok:true});
+        });
+    } catch(e) {
+        res.status(400).json({error: e.message});
+    }
+});
+
+// NOTIFICATIONS
+app.post('/api/notify', (req,res) => {
+    try {
+        const { title, body, type } = req.body;
+        if (!title) return res.status(400).json({ error: 'Missing title' });
+        
+        db.run("INSERT INTO notifications (title,body,type) VALUES (?,?,?)", [title, body || '', type || 'info'], function(err) {
+            if (err) return res.status(500).json({ error: 'Failed to create notification: ' + err.message });
+            res.json({ok:true, id:this.lastID});
+        });
+    } catch(e) {
+        res.status(400).json({error: e.message});
+    }
+});
 
 app.post('/api/reports', (req,res) => {
     console.log("📋 POST /api/reports received");
@@ -529,6 +864,70 @@ app.post('/api/reports', (req,res) => {
 app.get('/api/reports', (req,res) => {
     db.all("SELECT id, text, image, created_at FROM reports ORDER BY id DESC", (err, rows) => {
         res.json(rows || []);
+    });
+});
+
+// CONSCIENCE HISTORY - История Совести
+app.get('/api/conscience_history', (req,res) => {
+    db.all("SELECT id, title, text, icon, image, _order, enabled FROM conscience_history WHERE enabled=1 ORDER BY _order ASC", (err, rows) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json(rows || []);
+    });
+});
+
+app.post('/api/conscience_history', (req,res) => {
+    try {
+        const { title, text, icon, image, _order } = req.body;
+        if (!title) return res.status(400).json({ error: 'Missing title' });
+        
+        db.run(
+            "INSERT INTO conscience_history (title, text, icon, image, _order, enabled) VALUES (?,?,?,?,?,?)",
+            [title || '', text || '', icon || '🕊️', image || null, _order || 0, 1],
+            function(err) {
+                if (err) return res.status(500).json({ error: 'Failed to create entry: ' + err.message });
+                // Clear cache
+                dataCache.delete('conscience_history');
+                res.json({ok:true, id: this.lastID, title, text, icon, image, _order, enabled: 1});
+            }
+        );
+    } catch(e) {
+        res.status(400).json({error: e.message});
+    }
+});
+
+app.delete('/api/conscience_history/:id', (req,res) => {
+    try {
+        const id = validateInput(req.params.id, 'number', 1, 1000000);
+        db.run("DELETE FROM conscience_history WHERE id=?", [id], function(err) {
+            if (err) return res.status(500).json({ error: 'Failed to delete entry: ' + err.message });
+            // Clear cache
+            dataCache.delete('conscience_history');
+            res.json({ok:true});
+        });
+    } catch(e) {
+        res.status(400).json({error: e.message});
+    }
+});
+
+// Disable/Enable conscience history button
+app.post('/api/conscience_history/button/toggle', (req,res) => {
+    try {
+        const { enabled } = req.body;
+        db.run("INSERT OR REPLACE INTO settings (key, value) VALUES ('conscience_button_enabled', ?)", [enabled ? '1' : '0'], function(err) {
+            if (err) return res.status(500).json({ error: err.message });
+            dataCache.delete('settings');
+            res.json({ok:true, enabled});
+        });
+    } catch(e) {
+        res.status(400).json({error: e.message});
+    }
+});
+
+// Get conscience button status
+app.get('/api/conscience_button_enabled', (req,res) => {
+    db.get("SELECT value FROM settings WHERE key='conscience_button_enabled'", (err, row) => {
+        const enabled = row?.value !== '0';
+        res.json({enabled});
     });
 });
 

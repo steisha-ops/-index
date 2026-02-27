@@ -54,12 +54,13 @@ export default function MacOSAdmin() {
         const payload = { ...authForm, is_verified: authForm.is_verified ? 1 : 0 };
         
         const res = await req('/authors', 'POST', payload);
-        if(res.ok) {
+        if(res.ok || res.id) {
             setAuthForm({name:'', handle:'', avatar:'', bio:'', is_verified: false});
             refresh();
-            alert("Автор создан!");
+            alert("✅ Автор создан!");
         } else {
-            alert("Ошибка создания");
+            console.error("Author creation failed:", res);
+            alert(`❌ Ошибка создания: ${res.error || 'Unknown error'}`);
         }
     };
 
@@ -68,16 +69,26 @@ export default function MacOSAdmin() {
         // Highlight тоже шлем как 1/0
         const payload = { ...newsForm, is_highlighted: newsForm.is_highlighted ? 1 : 0 };
         
-        await req('/news', 'POST', payload);
-        setNewsForm({author_id:'', text:'', image:'', btn_text:'', btn_link:'', tags:'', is_highlighted: false});
-        refresh();
-        alert("Опубликовано!");
+        const res = await req('/news', 'POST', payload);
+        if(res.ok || res.id) {
+            setNewsForm({author_id:'', text:'', image:'', btn_text:'', btn_link:'', tags:'', is_highlighted: false});
+            refresh();
+            alert("✅ Опубликовано!");
+        } else {
+            console.error("News posting failed:", res);
+            alert(`❌ Ошибка публикации: ${res.error || 'Unknown error'}`);
+        }
     };
 
     const deleteItem = async (type, id) => {
         if(confirm("Удалить навсегда?")) {
-            await req(`/${type}/${id}`, 'DELETE');
-            refresh();
+            const res = await req(`/${type}/${id}`, 'DELETE');
+            if(res.ok) {
+                refresh();
+                alert("✅ Удалено");
+            } else {
+                alert(`❌ Ошибка удаления: ${res.error || 'Unknown error'}`);
+            }
         }
     };
 

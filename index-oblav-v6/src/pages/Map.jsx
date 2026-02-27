@@ -12,7 +12,7 @@ const mapStyles = {
     height: '100%',
 };
 
-// Стили для темной темы
+// Стили для темной темыы
 const darkMapStyle = [
     { elementType: "geometry", stylers: [{ color: "#242f3e" }] },
     { elementType: "labels.text.stroke", stylers: [{ color: "#242f3e" }] },
@@ -167,7 +167,7 @@ const MapPage = ({ theme }) => {
                 </div>
             </div>
 
-            {/* Places List Modal */}
+            {/* зPlaces List Modalа */}
             <AnimatePresence>
                 {showList && (
                     <motion.div initial={{x: -300, opacity: 0}} animate={{x: 0, opacity: 1}} exit={{x: -300, opacity: 0}} className={`absolute top-0 left-0 bottom-0 w-64 z-[1000] p-6 pt-20 shadow-2xl backdrop-blur-xl border-r ${theme==='dark'?'bg-black/80 border-white/10 text-white':'bg-white/90 border-black/5 text-black'}`}>

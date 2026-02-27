@@ -1,8 +1,9 @@
-import { useState, useEffect, memo, Suspense, lazy } from 'react';
+import { useState, useEffect, memo, Suspense, lazy, useCallback } from 'react';
 import { Routes, Route, useNavigate, useLocation, useParams } from 'react-router-dom';
 import { Home, BarChart2, Map, Newspaper, Bell, X, FileText, ChevronLeft, User, CheckCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { api } from './lib/api';
+import ConscienceCall from './components/ConscienceCall';
 
 import HomePage from './pages/Home';
 
@@ -14,23 +15,33 @@ const ReportPage = lazy(() => import('./pages/Report'));
 const Admin = lazy(() => import('./pages/Mapsandchart config'));
 
 // Loading fallback
-const PageLoader = () => (
-    <div className="min-h-screen flex items-center justify-center">
+const PageLoader = memo(() => (
+    <div className="min-h-screen flex items-center justify-center bg-black">
         <motion.div animate={{rotate: 360}} transition={{duration: 2, repeat: Infinity}}>
             <div className="w-12 h-12 border-4 border-blue-500/20 border-t-blue-500 rounded-full"/>
         </motion.div>
     </div>
-);
+));
+PageLoader.displayName = 'PageLoader';
 
 // FIX: The entire App component was accidentally deleted. This restores it.
 // This component now correctly handles routing and fetches necessary data.
-const App = () => {
+function App() {
+    return (
+        <div className="h-screen w-screen flex flex-col transition-colors duration-500 overflow-hidden bg-black">
+            <AppMain />
+        </div>
+    );
+}
+
+const AppMain = () => {
     const [pages, setPages] = useState([]);
-    const [theme, setTheme] = useState(localStorage.getItem('theme') || 'dark');
+    const [theme, setTheme] = useState(localStorage.getItem('theme') || 'light');
+    const [showConscienceCall, setShowConscienceCall] = useState(false);
 
     useEffect(() => {
         const root = window.document.documentElement;
-        root.classList.remove('light', 'dark');
+        root.classList.remove('light', 'dark', 'rose');
         root.classList.add(theme);
         localStorage.setItem('theme', theme);
         
@@ -38,27 +49,123 @@ const App = () => {
         api.getPages().then(setPages).catch(e => console.error("Failed to fetch pages", e));
     }, [theme]);
 
-    const toggleTheme = () => setTheme(prev => prev === 'dark' ? 'light' : 'dark');
+    const toggleTheme = () => {
+        if (navigator.vibrate) navigator.vibrate(20);
+        const themes = ['light', 'dark', 'rose'];
+        const currentIndex = themes.indexOf(theme);
+        const nextIndex = (currentIndex + 1) % themes.length;
+        setTheme(themes[nextIndex]);
+    };
+
+    const handleActivateTheme = (newTheme) => {
+        setTheme(newTheme);
+    };
+
+    const getBgClass = () => {
+        if (theme === 'dark') return 'bg-black';
+        if (theme === 'light') return 'bg-[#f2f2f7]';
+        if (theme === 'rose') return 'bg-gradient-to-br from-pink-50 via-rose-50 to-orange-50';
+        return 'bg-gradient-to-br from-pink-50 via-rose-50 to-orange-50';
+    };
 
     return (
-        <div className={`min-h-screen transition-colors duration-500 ${theme === 'dark' ? 'bg-black' : 'bg-[#f2f2f7]'}`}>
-            <AppContent pages={pages} theme={theme} toggleTheme={toggleTheme} />
+        <div className={`h-screen w-screen flex flex-col transition-colors duration-500 overflow-hidden ${getBgClass()}`}>
+            <div className="flex-1 overflow-y-auto overflow-x-hidden">
+                <AppContent pages={pages} theme={theme} toggleTheme={toggleTheme} onOpenConscienceCall={() => setShowConscienceCall(true)} />
+            </div>
+            
+            {/* Fixed Navigation at bottom - скрыта когда открыта История Совести */}
+            {!showConscienceCall && <FloatingNav pages={pages} theme={theme} />}
+
+            {/* Conscience Call Modal */}
+            <ConscienceCall 
+                isOpen={showConscienceCall} 
+                onClose={() => setShowConscienceCall(false)}
+                onActivateTheme={handleActivateTheme}
+            />
         </div>
     );
 };
 
+// Получаем location для проверки admin
+const FloatingNav = memo(({ pages, theme }) => {
+    const location = useLocation();
+    const isAdmin = location.pathname.includes('admin');
+    const [showIntro, setShowIntro] = useState(!localStorage.getItem('app_intro_shown'));
+    
+    // Слушаем пользовательское событие завершения интро
+    useEffect(() => {
+        const handleIntroComplete = () => {
+            setShowIntro(false);
+        };
+        window.addEventListener('intro_completed', handleIntroComplete);
+        return () => window.removeEventListener('intro_completed', handleIntroComplete);
+    }, []);
 
-const AppContent = ({ pages, theme, toggleTheme }) => {
+    // Скрываем навигацию если показывается интро
+    if (showIntro || isAdmin) return null;
+    // Не показываем навигацию на админ странице
+    if (isAdmin) return null;
+    
+    return (
+        <motion.nav 
+            initial={{opacity: 0, y: 100}}
+            animate={{opacity: 1, y: 0}}
+            transition={{delay: 0.3, duration: 0.6}}
+            className="fixed inset-x-0 bottom-0 z-[10001] pointer-events-none"
+            style={{height: 'auto'}}
+        >
+            {/* Background blur effect */}
+            <div className={`absolute inset-0 pointer-events-none ${
+                theme === 'dark' 
+                    ? 'bg-gradient-to-t from-black via-black/80 to-transparent' 
+                    : theme === 'light'
+                    ? 'bg-gradient-to-t from-white via-white/80 to-transparent'
+                    : 'bg-gradient-to-t from-pink-50 via-pink-50/80 to-transparent'
+            }`} style={{height: '120px'}}></div>
+            
+            <div className="flex justify-center px-4 pb-6 pointer-events-auto relative z-10" style={{paddingBottom: `calc(1.5rem + env(safe-area-inset-bottom, 0))`}}>
+                <motion.div 
+                    className={`
+                        flex items-center justify-between gap-1 px-4 py-4 rounded-3xl 
+                        pointer-events-auto backdrop-blur-3xl border shadow-2xl
+                        min-w-[340px] max-w-[400px] w-full
+                        ${theme === 'dark' 
+                            ? 'bg-black/75 border-white/20' 
+                            : theme === 'light'
+                            ? 'bg-white/85 border-white/40'
+                            : 'bg-rose-200/60 border-pink-300/50 shadow-pink-300/20'
+                        }
+                    `}
+                    whileHover={{y: -2}}
+                    transition={{type: 'spring', stiffness: 400, damping: 25}}
+                >
+                    <NavBtn to="/" icon={<Home size={24}/>} active={location.pathname==='/'} theme={theme} />
+                    <NavBtn to="/chart" icon={<BarChart2 size={24}/>} active={location.pathname==='/chart'} theme={theme} />
+                    <NavBtn to="/map" icon={<Map size={24}/>} active={location.pathname==='/map'} theme={theme} />
+                    <NavBtn to="/news" icon={<Newspaper size={24}/>} active={location.pathname==='/news'} theme={theme} />
+                    {pages.filter(p=>!p.is_hidden).slice(0, 1).map(p=>(
+                        <NavBtn key={p.id} to={`/${p.slug}`} icon={<FileText size={24}/>} active={location.pathname===`/${p.slug}`} theme={theme} />
+                    ))}
+                </motion.div>
+            </div>
+        </motion.nav>
+    );
+});
+FloatingNav.displayName = 'FloatingNav';
+
+
+const AppContent = memo(({ pages, theme, toggleTheme, onOpenConscienceCall }) => {
     const location = useLocation();
     const isAdmin = location.pathname.includes('admin');
 
     return (
         <>
-            {/* Main content area */}
-            <div className="relative z-10">
+            {/* Main content area with padding for fixed nav */}
+            <div className="relative z-10 pb-28">
                 <AnimatePresence mode="wait">
                     <Routes location={location} key={location.pathname}>
-                        <Route path="/" element={<HomePage theme={theme} toggleTheme={toggleTheme} />} />
+                        <Route path="/" element={<HomePage theme={theme} toggleTheme={toggleTheme} onOpenConscienceCall={onOpenConscienceCall} />} />
                         <Route path="/chart" element={<Suspense fallback={<PageLoader />}><ChartPage theme={theme} /></Suspense>} />
                         <Route path="/map" element={<Suspense fallback={<PageLoader />}><MapPage theme={theme} /></Suspense>} />
                         <Route path="/news" element={<Suspense fallback={<PageLoader />}><NewsPage theme={theme} /></Suspense>} />
@@ -68,38 +175,61 @@ const AppContent = ({ pages, theme, toggleTheme }) => {
                         {pages.map(p => (
                             <Route key={p.id} path={`/${p.slug}`} element={<CustomPage theme={theme} title={p.title} content={p.content} />} />
                         ))}
+                        {/* Fallback route */}
+                        <Route path="*" element={<NotFound theme={theme} />} />
                     </Routes>
                 </AnimatePresence>
             </div>
-
-            {/* Bottom navigation bar, appears only on non-admin pages */}
-            {!isAdmin && (
-                <nav className="fixed bottom-0 left-0 right-0 z-[10001] p-4 pb-5 pointer-events-none safe-area-bottom">
-                    <div className="glass-card h-20 flex items-center justify-around px-2 rounded-[32px] pointer-events-auto border-white/5 shadow-2xl max-w-md mx-auto">
-                        <NavBtn to="/" icon={<Home size={24}/>} active={location.pathname==='/'} theme={theme} />
-                        <NavBtn to="/chart" icon={<BarChart2 size={24}/>} active={location.pathname==='/chart'} theme={theme} />
-                        <NavBtn to="/map" icon={<Map size={24}/>} active={location.pathname==='/map'} theme={theme} />
-                        <NavBtn to="/news" icon={<Newspaper size={24}/>} active={location.pathname==='/news'} theme={theme} />
-                        {pages.filter(p=>!p.is_hidden).map(p=>(<NavBtn key={p.id} to={`/${p.slug}`} icon={<FileText size={24}/>} active={location.pathname===`/${p.slug}`} theme={theme} />))}
-                    </div>
-                </nav>
-            )}
         </>
     );
-};
+}, (prevProps, nextProps) => {
+    return prevProps.theme === nextProps.theme && 
+           prevProps.pages.length === nextProps.pages.length &&
+           prevProps.onOpenConscienceCall === nextProps.onOpenConscienceCall;
+});
+AppContent.displayName = 'AppContent';
 
 // --- DYNAMIC & DETAIL PAGES ---
 
-const CustomPage = memo(({ title, content, theme }) => {
+const NotFound = memo(({ theme }) => {
+    const navigate = useNavigate();
     return (
-        <div className={`min-h-screen pt-24 pb-32 p-6 ${theme==='dark'?'text-white':'text-black'}`}>
-           {content.trim().startsWith('<') 
-                ? <div dangerouslySetInnerHTML={{__html:content}}/> 
-                : <div className="glass-card p-6"><h1 className="text-3xl font-black mb-4">{title}</h1><div className="whitespace-pre-wrap text-sm opacity-80">{content}</div></div>
-           }
-        </div>
+        <motion.div 
+            initial={{opacity:0, y:20}}
+            animate={{opacity:1, y:0}}
+            className={`min-h-screen flex flex-col items-center justify-center pt-24 pb-32 p-6 max-w-2xl mx-auto text-center`}
+        >
+            <div className="text-6xl font-black mb-4">404</div>
+            <h1 className="text-3xl font-black mb-3 text-[var(--text-primary)]">Страница не найдена</h1>
+            <p className="text-[var(--text-dim)] mb-8">Пожалуйста, вернитесь на главную</p>
+            <motion.button
+                whileTap={{scale:0.95}}
+                onClick={() => navigate('/')}
+                className="px-6 py-3 rounded-2xl bg-gradient-to-r from-blue-500 to-cyan-500 text-white font-bold"
+            >
+                На главную
+            </motion.button>
+        </motion.div>
     );
 });
+NotFound.displayName = 'NotFound';
+
+const CustomPage = memo(({ title, content, theme }) => {
+    return (
+        <motion.div 
+            initial={{opacity:0, y:20}}
+            animate={{opacity:1, y:0}}
+            className={`min-h-screen pt-24 pb-32 p-6 max-w-2xl mx-auto ${theme==='dark'?'bg-black text-white':'bg-[#f2f2f7] text-black'}`}
+        >
+            <h1 className="text-4xl font-black mb-6 text-[var(--text-primary)]">{title}</h1>
+            {content && content.trim().startsWith('<') 
+                ? <div className="prose prose-invert max-w-none" dangerouslySetInnerHTML={{__html:content}}/> 
+                : <div className="glass-card p-8"><div className="whitespace-pre-wrap text-base opacity-90 leading-relaxed">{content}</div></div>
+            }
+        </motion.div>
+    );
+});
+CustomPage.displayName = 'CustomPage';
 
 const AuthorProfile = memo(({ theme }) => {
     const { id } = useParams();
@@ -193,9 +323,14 @@ const AuthorProfile = memo(({ theme }) => {
 
                 {/* NEWS SECTION */}
                 <div className="mt-12">
-                    <h2 className={`text-2xl font-black mb-6 ${isBgDark ? 'text-white' : 'text-black'}`}>
-                        📰 НОВОСТИ
-                    </h2>
+                    <div className="flex items-center gap-3 mb-6">
+                        <div className={`p-3 rounded-lg ${theme === 'dark' ? 'bg-blue-500/20' : 'bg-blue-400/20'}`}>
+                            <Newspaper size={24} className="text-blue-500"/>
+                        </div>
+                        <h2 className={`text-2xl font-black ${isBgDark ? 'text-white' : 'text-black'}`}>
+                            НОВОСТИ
+                        </h2>
+                    </div>
                     
                     {news && news.length > 0 ? (
                         <div className="space-y-4">
@@ -258,11 +393,60 @@ const AuthorProfile = memo(({ theme }) => {
 
 const NavBtn = memo(({to, icon, active, theme}) => {
     const navigate = useNavigate();
+    
+    // Haptic feedback function
+    const hapticFeedback = () => {
+        if (typeof window !== 'undefined' && window.navigator && window.navigator.vibrate) {
+            // Telegram-style vibration pattern: short burst
+            window.navigator.vibrate([8, 4, 8]);
+        }
+    };
+    
+    const handleClick = () => {
+        hapticFeedback();
+        navigate(to);
+    };
+    
     return (
-        <button onClick={()=>navigate(to)} className={`p-4 h-16 w-16 flex items-center justify-center rounded-2xl transition-all duration-300 ${active ? (theme==='dark'?'bg-white text-black shadow-lg':'bg-black text-white shadow-lg') : 'text-gray-400 hover:text-[var(--text-primary)]'}`}>
+        <motion.button 
+            onClick={handleClick}
+            onMouseDown={hapticFeedback}
+            whileHover={{scale: 1.15, y: -3}}
+            whileTap={{scale: 0.88}}
+            className={`
+                relative p-3 h-14 w-14 flex items-center justify-center rounded-2xl 
+                transition-all duration-300 font-semibold text-sm
+                ${active 
+                    ? theme === 'dark'
+                        ? 'bg-white/90 text-black shadow-xl'
+                        : theme === 'light'
+                        ? 'bg-black/90 text-white shadow-xl'
+                        : 'bg-gradient-to-br from-pink-400 to-rose-300 text-white shadow-xl shadow-pink-400/40'
+                    : theme === 'dark'
+                        ? 'text-white/50 hover:text-white/90 hover:bg-white/10'
+                        : theme === 'light'
+                        ? 'text-black/50 hover:text-black/90 hover:bg-black/10'
+                        : 'text-pink-600/60 hover:text-pink-600/90 hover:bg-pink-300/25'
+                }
+            `}
+        >
+            {active && (
+                <motion.div 
+                    layoutId="activeNav"
+                    className={`absolute inset-0 rounded-2xl -z-10 ${
+                        theme === 'dark' 
+                            ? 'bg-gradient-to-br from-blue-400 to-cyan-400' 
+                            : theme === 'light'
+                            ? 'bg-gradient-to-br from-blue-600 to-cyan-600'
+                            : 'bg-gradient-to-br from-pink-400 to-rose-300'
+                    }`}
+                    transition={{type: 'spring', stiffness: 380, damping: 30}}
+                />
+            )}
             {icon}
-        </button>
+        </motion.button>
     );
 });
+NavBtn.displayName = 'NavBtn';
 
 export default App;
