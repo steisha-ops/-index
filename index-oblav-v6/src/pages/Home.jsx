@@ -68,16 +68,13 @@ const MenuButton = ({ b, onClick, onHover }) => {
     );
 };
 
-const Home = ({ theme, toggleTheme, onOpenConscienceCall }) => {
+const Home = ({ theme, toggleTheme, onOpenConscienceCall, showRegionModal, setShowRegionModal, regionsList, currentRegion, selectRegion }) => {
   const [ticker, setTicker] = useState(3.0);
   const [news, setNews] = useState([]);
   const [widgets, setWidgets] = useState([]);
   const [buttons, setButtons] = useState([]);
   const [authors, setAuthors] = useState([]);
   const [popups, setPopups] = useState([]);
-  const [currentRegion, setCurrentRegion] = useState({ name: 'Загрузка...', current_index: 3.0 });
-  const [regionsList, setRegionsList] = useState([]);
-  const [showRegionModal, setShowRegionModal] = useState(false);
   const [activePopup, setActivePopup] = useState(null);
   const [showIntro, setShowIntro] = useState(false);
   const [isNoWeapons, setIsNoWeapons] = useState(false);
@@ -92,13 +89,6 @@ const Home = ({ theme, toggleTheme, onOpenConscienceCall }) => {
   useEffect(() => {
     const load = async () => {
         try {
-            api.getRegions().then(list => {
-                if (list?.length) {
-                    setRegionsList(list);
-                    const saved = localStorage.getItem('user_region_id');
-                    selectRegion(list.find(r=>String(r.id)===String(saved)) || list[0], false);
-                }
-            });
             api.getNews().then(n => setNews(n.slice(0,2)));
             api.getButtons().then(setButtons);
             
@@ -117,15 +107,6 @@ const Home = ({ theme, toggleTheme, onOpenConscienceCall }) => {
     }, 3000);
     return () => clearInterval(i);
   }, []);
-
-  const selectRegion = (reg, close=true) => {
-      if(!reg) return;
-      setCurrentRegion(reg);
-      setTicker(reg.current_index);
-      localStorage.setItem('user_region_id', reg.id);
-      localStorage.setItem('user_region_data', JSON.stringify({lat: reg.lat, lng: reg.lng, zoom: reg.zoom}));
-      if(close) setShowRegionModal(false);
-  };
 
   // интро
   const handleIntroComplete = () => {
@@ -329,22 +310,6 @@ const Home = ({ theme, toggleTheme, onOpenConscienceCall }) => {
       </div>
       
       <AnimatePresence>
-        {showRegionModal && (
-            <motion.div initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}} className="fixed inset-0 z-[9999] bg-black/60 backdrop-blur-xl flex items-end justify-center" onClick={() => setShowRegionModal(false)}>
-                <motion.div initial={{y:"100%"}} animate={{y:0}} exit={{y:"100%"}} transition={{type: 'spring', damping: 30, stiffness: 250}} className="w-full max-w-md bg-[var(--bg-card)] border-t border-[var(--border)] rounded-t-[40px] p-8 pb-32 shadow-2xl safe-area-bottom z-[10000]" onClick={e => e.stopPropagation()}>
-                    <h3 className="text-3xl font-black text-[var(--text-primary)] mb-8 px-2 tracking-tight">Выберите город</h3>
-                    <div className="space-y-3 overflow-y-auto pr-2 max-h-[45vh]">{regionsList.map(r => (
-                        <button key={r.id} onClick={() => selectRegion(r)} className={`w-full text-left p-5 rounded-[28px] border transition-all duration-300 flex justify-between items-center group ${currentRegion.id === r.id ? 'bg-blue-600 border-transparent text-white shadow-lg' : 'bg-[var(--bg-main)] border-[var(--border)] text-[var(--text-dim)] hover:border-white/20'}`}>
-                            <div>
-                                <div className="font-bold text-lg">{r.name}</div>
-                                <div className={`text-xs mt-1 font-mono ${currentRegion.id === r.id ? 'text-blue-200' : 'opacity-70'}`}>ИНДЕКС: {r.current_index.toFixed(2)}</div>
-                            </div>
-                            {currentRegion.id === r.id && <div className="bg-white/20 p-1.5 rounded-full"><CheckCircle size={20}/></div>}
-                        </button>
-                    ))}</div>
-                </motion.div>
-            </motion.div>
-        )}
         {activePopup && (
             <motion.div initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}} className={`fixed inset-0 z-[20000] flex items-center justify-center p-6 pointer-events-auto ${theme === 'light' ? 'bg-black/50 backdrop-blur-lg' : 'bg-black/80 backdrop-blur-lg'}`} onClick={()=>setActivePopup(null)}>
                 <motion.div initial={{scale:0.9, opacity:0}} animate={{scale:1, opacity:1}} exit={{scale:0.9, opacity:0}} transition={{type:'spring', damping:20, stiffness:200}} className={`w-full max-w-sm p-0 overflow-hidden shadow-2xl rounded-3xl border ${theme === 'light' ? 'bg-white text-black border-gray-200' : 'glass-card border-white/10'}`} onClick={e=>e.stopPropagation()}>

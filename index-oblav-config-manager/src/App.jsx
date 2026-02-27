@@ -7,6 +7,7 @@ import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
 import Tma from './components/Tma'; // Импорт нового компонента
 import ImageEditor from './components/ImageEditor';
+import IntroVideo from './components/IntroVideo';
 
 import icon from 'leaflet/dist/images/marker-icon.png';
 import iconShadow from 'leaflet/dist/images/marker-shadow.png';
@@ -25,10 +26,14 @@ const Login = ({ onSuccess }) => {
 
 export default function ConfigManager() {
     const [auth, setAuth] = useState(true);
+    const [showIntro, setShowIntro] = useState(true);
+    
     if(!auth) return <Login onSuccess={()=>setAuth(true)}/>;
+    
     return (
         <div className="h-screen w-full bg-black flex items-center justify-center p-4 text-white font-sans">
-            <ConfigWindow onLogout={()=>setAuth(false)} />
+            {showIntro && <IntroVideo onComplete={() => setShowIntro(false)} />}
+            {!showIntro && <ConfigWindow onLogout={()=>setAuth(false)} />}
         </div>
     );
 }

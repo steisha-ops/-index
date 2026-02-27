@@ -10,6 +10,7 @@
     "clsx": "^2.1.0",
     "concurrently": "^9.2.1",
     "crypto-js": "^4.2.0",
+    "framer-motion": "^12.34.3",
     "leaflet": "^1.9.4",
     "lucide-react": "^0.330.0",
     "react": "^18.2.0",
