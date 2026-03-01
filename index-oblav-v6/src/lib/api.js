@@ -1,4 +1,6 @@
 // Кэш для API запросов с лучшей управлением памятью
+import { cacheForOffline, getOfflineData, isOnline } from './offline';
+
 const apiCache = new Map();
 const CACHE_DURATION = {
     'short': 30000,   // 30 сек
@@ -72,10 +74,23 @@ const get = (u, cacheDuration = 'medium', skipCache = false) => {
         })
         .then(data => {
             if (!skipCache) setCached(u, data, cacheDuration);
+            // Cache for offline - save to IndexedDB
+            cacheForOffline(u, data).catch(e => console.warn('⚠️ Failed to cache for offline:', e));
             return data;
         })
-        .catch(e=> { 
-            console.error("❌ GET Error:", e); 
+        .catch(async (e) => { 
+            console.error("❌ GET Error:", e);
+            
+            // If offline, try to get from offline storage
+            if (!isOnline()) {
+                console.log(`📂 Device offline, trying offline cache for ${u}`);
+                const offlineData = await getOfflineData(u);
+                if (offlineData) {
+                    console.log(`✅ Retrieved from offline: ${u}`);
+                    return offlineData;
+                }
+            }
+            
             return []; 
         });
 };
@@ -84,15 +99,15 @@ export const api = {
     getSettings: () => get('/api/settings', 'long'),
     getNews: (limit = 20) => get(`/api/news?limit=${limit}`, 'medium'),
     getButtons: () => get('/api/buttons', 'long'),
-    getMarkers: () => get('/api/markers', 'medium'),
+    getMarkers: () => get('/api/markers', 'medium', true), // NO CACHE - always fresh for map
     getRegions: () => get('/api/regions', 'long'),
-    getHistory: () => get('/api/history', 'short'),
-    getHourly: () => get('/api/hourly', 'short'),
+    getHistory: () => get('/api/history', 'short', true), // NO CACHE - always fresh risk index!
+    getHourly: () => get('/api/hourly', 'short', true), // NO CACHE - always fresh charts!
     getWidgets: () => get('/api/widgets', 'long'),
     getAuthors: () => get('/api/authors', 'medium'),
     getPopups: () => get('/api/popups', 'long'),
     getAuthor: (id) => get(`/api/authors/${id}`, 'medium'),
-    getRegionData: (id) => get(`/api/region_data/${id}`, 'short', true), // skipCache=true - всегда свежие данные!
+    getRegionData: (id) => get(`/api/region_data/${id}`, 'short', true), // skipCache=true - always fresh data!
     getPages: () => get('/api/pages', 'long'),
 
     sendReport: (text, image) => post('/api/reports', {text, image}),
@@ -100,10 +115,11 @@ export const api = {
     // Write operations - update index, history, etc
     updateRegionIndex: async (id, value) => {
         const result = await post('/api/update_region_index', {id, value});
-        // Очищаем кэш региона после обновления
+        // Clear all region-related caches after updating index
         if (result && result.ok) {
             apiCache.delete(`/api/region_data/${id}`);
-            console.log(`🧹 Cleared cache for region ${id}`);
+            apiCache.delete('/api/history');
+            console.log(`🧹 Cleared cache for region ${id} and history`);
         }
         return result;
     },
@@ -111,6 +127,8 @@ export const api = {
         const result = await post('/api/update_region_history', {id, date, value});
         if (result && result.ok) {
             apiCache.delete(`/api/region_data/${id}`);
+            apiCache.delete('/api/history');
+            apiCache.delete('/api/hourly');
         }
         return result;
     },
@@ -118,6 +136,8 @@ export const api = {
         const result = await post('/api/delete_history_day', {region_id: id, date});
         if (result && result.ok) {
             apiCache.delete(`/api/region_data/${id}`);
+            apiCache.delete('/api/history');
+            apiCache.delete('/api/hourly');
         }
         return result;
     },
@@ -125,13 +145,15 @@ export const api = {
         const result = await post('/api/shift_day', {region_id: id});
         if (result && result.ok) {
             apiCache.delete(`/api/region_data/${id}`);
+            apiCache.delete('/api/history');
+            apiCache.delete('/api/hourly');
         }
         return result;
     },
     saveSetting: async (key, value) => {
         const result = await post('/api/settings', {key, value});
         if (result && result.ok) {
-            apiCache.clear(); // Очищаем весь кэш при изменении настроек
+            apiCache.clear(); // Clear all cache after settings change
             console.log('🧹 Cleared all cache after settings change');
         }
         return result;
@@ -139,7 +161,9 @@ export const api = {
     updateHistory: async (date, value) => {
         const result = await post('/api/history', {date, value});
         if (result && result.ok) {
-            apiCache.clear(); // Очищаем кэш при обновлении истории
+            apiCache.delete('/api/history');
+            apiCache.delete('/api/hourly');
+            console.log('🧹 Cleared history cache after update');
         }
         return result;
     },
@@ -151,12 +175,12 @@ export const api = {
     deleteButton: (id) => post(`/api/buttons/${id}/delete`, {}),
     getReports: () => get('/api/reports', 'medium'),
     
-    // Prefetch функция для предварительной загрузки данных
+    // Prefetch для predload данных
     prefetch: (url, cacheDuration = 'medium') => {
         return get(url, cacheDuration);
     },
     
-    // Batch prefetch для загрузки нескольких запросов одновременно
+    // Batch prefetch для load нескольких запросов одновременно
     prefetchBatch: (urls, cacheDuration = 'medium') => {
         return Promise.all(urls.map(url => get(url, cacheDuration)));
     },
@@ -191,6 +215,29 @@ export const api = {
         const result = await post('/api/conscience_history/button/toggle', {enabled});
         if (result && result.ok) {
             apiCache.delete('/api/conscience_button_enabled');
+        }
+        return result;
+    },
+    
+    // WIDGET LAYOUTS (iOS HOME SCREEN CUSTOMIZATION)
+    getWidgetLayout: (userId) => get(`/api/widget-layouts/${userId}`, 'short'),
+    saveWidgetLayout: async (userId, widgetOrder) => {
+        const result = await post('/api/widget-layouts', { userId, widgetOrder });
+        if (result && result.ok) {
+            apiCache.delete(`/api/widget-layouts/${userId}`);
+        }
+        return result;
+    },
+    resetWidgetLayout: async (userId) => {
+        const result = await fetch(`/api/widget-layouts/${userId}`, {
+            method: 'DELETE',
+            signal: AbortSignal.timeout(15000)
+        }).then(r => r.json()).catch(e => {
+            console.error("❌ DELETE Error:", e);
+            return null;
+        });
+        if (result && result.ok) {
+            apiCache.delete(`/api/widget-layouts/${userId}`);
         }
         return result;
     },

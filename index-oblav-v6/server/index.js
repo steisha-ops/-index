@@ -124,7 +124,8 @@ function initDb() {
         `CREATE TABLE IF NOT EXISTS notifications (id INTEGER PRIMARY KEY, title TEXT, body TEXT, type TEXT)`,
         `CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)`,
         `CREATE TABLE IF NOT EXISTS reports (id INTEGER PRIMARY KEY, text TEXT, image TEXT, created_at TEXT)`,
-        `CREATE TABLE IF NOT EXISTS conscience_history (id INTEGER PRIMARY KEY, title TEXT, text TEXT, icon TEXT, image TEXT, _order INTEGER DEFAULT 0, enabled INTEGER DEFAULT 1)`
+        `CREATE TABLE IF NOT EXISTS conscience_history (id INTEGER PRIMARY KEY, title TEXT, text TEXT, icon TEXT, image TEXT, _order INTEGER DEFAULT 0, enabled INTEGER DEFAULT 1)`,
+        `CREATE TABLE IF NOT EXISTS widget_layouts (id INTEGER PRIMARY KEY, user_id TEXT UNIQUE, widget_order TEXT, created_at TEXT, updated_at TEXT)`
     ];
     schema.forEach(sql => db.run(sql));
     
@@ -739,6 +740,21 @@ app.delete('/api/authors/:id', (req,res) => {
     }
 });
 
+// --- AUTH ENDPOINTS ---
+app.post('/api/auth/login', (req, res) => {
+    const { password } = req.body;
+    if (!password) return res.status(400).json({ error: "Missing password" });
+
+    // Default admin auth (simplified for config-manager)
+    const correctPassword = 'admin'; // CHANGE THIS!
+    
+    if (password === correctPassword) {
+        res.json({ ok: true, message: "Login successful", admin: true });
+    } else {
+        res.status(401).json({ error: "Invalid password" });
+    }
+});
+
 // --- NEW AUTHOR AUTH ---
 app.post('/api/author/set-password', (req, res) => {
     const { author_id, password } = req.body;
@@ -929,6 +945,58 @@ app.get('/api/conscience_button_enabled', (req,res) => {
         const enabled = row?.value !== '0';
         res.json({enabled});
     });
+});
+
+// ===== WIDGET LAYOUTS (iOS HOME SCREEN CUSTOMIZATION) =====
+
+// Get user's widget layout
+app.get('/api/widget-layouts/:userId', (req, res) => {
+    try {
+        const userId = validateInput(req.params.userId, 'string', 1, 500);
+        db.get("SELECT widget_order FROM widget_layouts WHERE user_id=?", [userId], (err, row) => {
+            if (err) return res.status(500).json({ error: err.message });
+            const order = row?.widget_order ? JSON.parse(row.widget_order) : null;
+            res.json({ order });
+        });
+    } catch(e) {
+        res.status(400).json({ error: e.message });
+    }
+});
+
+// Save user's widget layout
+app.post('/api/widget-layouts', (req, res) => {
+    try {
+        const { userId, widgetOrder } = req.body;
+        const clean_userId = validateInput(userId, 'string', 1, 500);
+        if (!Array.isArray(widgetOrder)) throw new Error('widgetOrder must be array');
+        
+        const now = new Date().toISOString();
+        const order_json = JSON.stringify(widgetOrder);
+        
+        db.run(
+            "INSERT OR REPLACE INTO widget_layouts (user_id, widget_order, created_at, updated_at) VALUES (?, ?, COALESCE((SELECT created_at FROM widget_layouts WHERE user_id=?), ?), ?)",
+            [clean_userId, order_json, clean_userId, now, now],
+            function(err) {
+                if (err) return res.status(500).json({ error: err.message });
+                res.json({ ok: true, order: widgetOrder });
+            }
+        );
+    } catch(e) {
+        res.status(400).json({ error: e.message });
+    }
+});
+
+// Delete widget layout (reset to default)
+app.delete('/api/widget-layouts/:userId', (req, res) => {
+    try {
+        const userId = validateInput(req.params.userId, 'string', 1, 500);
+        db.run("DELETE FROM widget_layouts WHERE user_id=?", [userId], function(err) {
+            if (err) return res.status(500).json({ error: err.message });
+            res.json({ ok: true });
+        });
+    } catch(e) {
+        res.status(400).json({ error: e.message });
+    }
 });
 
 app.post('/api/optimize', (req,res) => db.run("VACUUM", [], ()=>res.json({ok:true})));

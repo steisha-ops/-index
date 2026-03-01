@@ -1,12 +1,12 @@
 import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { LogOut, Upload, Save, Plus, Edit2, Trash2, Eye, EyeOff } from 'lucide-react'
+import { LogOut, Upload, Save, Plus, Edit2, Trash2, Eye, EyeOff, Zap, Sparkles, Rocket } from 'lucide-react'
 import ReactQuill from 'react-quill'
 import 'react-quill/dist/quill.snow.css'
 import { getAuthorNews, createNews, updateNews, deleteNews, updateAuthorProfile, uploadImage } from '../lib/api'
 
 export default function AuthorCabinet({ user, setUser }) {
-    const [activeTab, setActiveTab] = useState('profile') // profile, news
+    const [activeTab, setActiveTab] = useState('profile') // profile, news, widgets
     const [profile, setProfile] = useState({
         name: user?.name || '',
         bio: user?.bio || 'Краткая биография автора',
@@ -157,7 +157,8 @@ export default function AuthorCabinet({ user, setUser }) {
                     <div className="flex gap-4 mb-8">
                         {[
                             { id: 'profile', label: 'Мой профиль', icon: '👤' },
-                            { id: 'news', label: 'Новости', icon: '📰' }
+                            { id: 'news', label: 'Новости', icon: '📰' },
+                            { id: 'widgets', label: 'Виджеты', icon: '✨' }
                         ].map(tab => (
                             <motion.button
                                 key={tab.id}
@@ -439,6 +440,148 @@ export default function AuthorCabinet({ user, setUser }) {
                                                 </div>
                                             </motion.div>
                                         ))}
+                                    </div>
+                                </motion.div>
+                            </motion.div>
+                        )}
+                    </AnimatePresence>
+
+                    {/* Widgets Tab */}
+                    <AnimatePresence mode="wait">
+                        {activeTab === 'widgets' && (
+                            <motion.div
+                                key="widgets"
+                                initial={{ opacity: 0, y: 10 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                exit={{ opacity: 0, y: -10 }}
+                                transition={{ duration: 0.2 }}
+                                className="flex items-center justify-center min-h-[600px]"
+                            >
+                                <motion.div
+                                    initial={{ scale: 0.8, opacity: 0 }}
+                                    animate={{ scale: 1, opacity: 1 }}
+                                    transition={{ delay: 0.1, duration: 0.4, type: 'spring', stiffness: 100 }}
+                                    className="max-w-2xl w-full"
+                                >
+                                    {/* Animated Background */}
+                                    <div className="relative">
+                                        <motion.div
+                                            animate={{
+                                                rotate: 360,
+                                                scale: [1, 1.1, 1]
+                                            }}
+                                            transition={{
+                                                rotate: { duration: 20, repeat: Infinity, ease: 'linear' },
+                                                scale: { duration: 3, repeat: Infinity }
+                                            }}
+                                            className="absolute inset-0 bg-gradient-to-r from-purple-500 via-pink-500 to-cyan-500 rounded-3xl opacity-20 blur-2xl"
+                                        />
+                                        
+                                        <motion.div
+                                            initial={{ opacity: 0, y: 20 }}
+                                            animate={{ opacity: 1, y: 0 }}
+                                            transition={{ delay: 0.2 }}
+                                            className="relative glass-card p-12 border border-white/20 text-center backdrop-blur-xl"
+                                        >
+                                            {/* Floating Icons */}
+                                            <motion.div
+                                                animate={{ y: [-10, 10, -10] }}
+                                                transition={{ duration: 3, repeat: Infinity }}
+                                                className="mb-8 flex justify-center gap-4"
+                                            >
+                                                <motion.div
+                                                    whileHover={{ scale: 1.1, rotate: 15 }}
+                                                    className="text-6xl"
+                                                >
+                                                    <Sparkles className="text-purple-400" size={64} />
+                                                </motion.div>
+                                                <motion.div
+                                                    animate={{ rotate: 360 }}
+                                                    transition={{ duration: 4, repeat: Infinity, ease: 'linear' }}
+                                                    className="text-6xl"
+                                                >
+                                                    <Zap className="text-cyan-400" size={64} />
+                                                </motion.div>
+                                                <motion.div
+                                                    animate={{ y: [10, -10, 10] }}
+                                                    transition={{ duration: 3, repeat: Infinity }}
+                                                    className="text-6xl"
+                                                >
+                                                    <Rocket className="text-pink-400" size={64} />
+                                                </motion.div>
+                                            </motion.div>
+
+                                            <motion.h2
+                                                initial={{ opacity: 0 }}
+                                                animate={{ opacity: 1 }}
+                                                transition={{ delay: 0.3 }}
+                                                className="text-4xl font-black bg-gradient-to-r from-purple-300 via-pink-300 to-cyan-300 bg-clip-text text-transparent mb-4"
+                                            >
+                                                Скоро!
+                                            </motion.h2>
+
+                                            <motion.p
+                                                initial={{ opacity: 0 }}
+                                                animate={{ opacity: 1 }}
+                                                transition={{ delay: 0.4 }}
+                                                className="text-lg text-gray-300 mb-6 leading-relaxed"
+                                            >
+                                                Система управления виджетами находится в разработке. Скоро вы сможете создавать и настраивать собственные виджеты для своего профиля.
+                                            </motion.p>
+
+                                            <motion.div
+                                                initial={{ opacity: 0, scale: 0.8 }}
+                                                animate={{ opacity: 1, scale: 1 }}
+                                                transition={{ delay: 0.5 }}
+                                                className="flex flex-col sm:flex-row items-center justify-center gap-4"
+                                            >
+                                                <div className="px-6 py-3 rounded-xl bg-gradient-to-r from-purple-500/30 to-pink-500/30 border border-purple-500/50 text-purple-300 font-bold text-sm">
+                                                    ✨ Новые возможности
+                                                </div>
+                                                <div className="px-6 py-3 rounded-xl bg-gradient-to-r from-cyan-500/30 to-blue-500/30 border border-cyan-500/50 text-cyan-300 font-bold text-sm">
+                                                    ⚡ Улучшенный функционал
+                                                </div>
+                                            </motion.div>
+
+                                            {/* Animated Progress Bar */}
+                                            <motion.div
+                                                initial={{ opacity: 0 }}
+                                                animate={{ opacity: 1 }}
+                                                transition={{ delay: 0.6 }}
+                                                className="mt-8"
+                                            >
+                                                <p className="text-xs text-gray-400 mb-2">В разработке</p>
+                                                <div className="h-2 bg-gray-700/50 rounded-full overflow-hidden border border-gray-600/50">
+                                                    <motion.div
+                                                        initial={{ width: 0 }}
+                                                        animate={{ width: '65%' }}
+                                                        transition={{ delay: 0.8, duration: 1.5, ease: 'easeOut' }}
+                                                        className="h-full bg-gradient-to-r from-purple-500 via-pink-500 to-cyan-500"
+                                                    />
+                                                </div>
+                                            </motion.div>
+
+                                            {/* Orbiting Elements */}
+                                            <div className="mt-12 relative h-32 flex items-center justify-center">
+                                                <div className="absolute inset-0 flex items-center justify-center">
+                                                    <motion.div
+                                                        animate={{ rotate: 360 }}
+                                                        transition={{ duration: 8, repeat: Infinity, ease: 'linear' }}
+                                                        className="absolute w-24 h-24 border-2 border-gray-600/30 rounded-full"
+                                                    />
+                                                    <motion.div
+                                                        animate={{ rotate: -360 }}
+                                                        transition={{ duration: 12, repeat: Infinity, ease: 'linear' }}
+                                                        className="absolute w-32 h-32 border-2 border-gray-600/20 rounded-full"
+                                                    />
+                                                    <motion.div
+                                                        animate={{ scale: [1, 1.2, 1] }}
+                                                        transition={{ duration: 2, repeat: Infinity }}
+                                                        className="w-4 h-4 bg-gradient-to-r from-cyan-400 to-purple-400 rounded-full shadow-lg shadow-cyan-400/50"
+                                                    />
+                                                </div>
+                                            </div>
+                                        </motion.div>
                                     </div>
                                 </motion.div>
                             </motion.div>

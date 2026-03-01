@@ -3,6 +3,8 @@ import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianG
 import { AlertTriangle, Shield, Activity, Zap } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { api } from '../lib/api';
+import TutorialOverlay from '../components/TutorialOverlay';
+import { tutorialData } from '../lib/tutorialData';
 
 // Утилита для дебаунса
 const debounce = (func, delay) => {
@@ -143,23 +145,28 @@ RiskCard.displayName = 'RiskCard';
 
 // Мемоированный компонент для кнопок фреймов
 const TimeframeButtons = memo(({ timeframe, onChange, isBgDark }) => (
-    <div className={`flex gap-2 mb-8 p-2 rounded-2xl backdrop-blur-xl border ${isBgDark ? 'bg-white/5 border-white/10' : 'bg-white/40 border-white/60'}`}>
+    <motion.div 
+        initial={{opacity:0, y:10}}
+        animate={{opacity:1, y:0}}
+        transition={{delay:0.15}}
+        className={`flex gap-2 md:gap-3 mb-8 p-2.5 md:p-3 rounded-2xl md:rounded-3xl backdrop-blur-xl border ${isBgDark ? 'bg-white/5 border-white/10' : 'bg-white/40 border-white/60'} overflow-x-auto`}
+    >
         {[7, 30, 90, 180].map(d => (
             <motion.button 
                 key={d}
                 whileTap={{scale:0.92}}
                 onMouseDown={() => haptic.light()}
                 onClick={() => { haptic.medium(); onChange(d); }}
-                className={`flex-1 py-2 md:py-3 rounded-xl text-[10px] md:text-[11px] font-bold transition-all duration-300 cursor-pointer active:scale-95 ${
+                className={`py-3 md:py-3.5 px-4 md:px-6 rounded-xl md:rounded-2xl text-xs md:text-sm font-bold transition-all duration-300 cursor-pointer active:scale-95 whitespace-nowrap flex-shrink-0 ${
                     timeframe === d 
-                        ? 'bg-gradient-to-br from-blue-500 to-blue-600 text-white shadow-lg shadow-blue-500/50'
+                        ? 'bg-gradient-to-br from-blue-500 to-blue-600 text-white shadow-lg shadow-blue-500/50 font-black'
                         : `${isBgDark ? 'text-gray-400 hover:text-white' : 'text-gray-700 hover:text-black'} hover:bg-white/10`
                 }`}
             >
-                {d === 180 ? 'ALL' : `${d}D`}
+                {d === 180 ? 'ВСЕ' : `${d} дн.`}
             </motion.button>
         ))}
-    </div>
+    </motion.div>
 ), (prevProps, nextProps) => {
     return prevProps.timeframe === nextProps.timeframe && 
            prevProps.isBgDark === nextProps.isBgDark;
@@ -187,23 +194,21 @@ const ForecastCard = memo(({ item, index, getRiskColor }) => {
             onClick={() => haptic.medium()}
             className={`rounded-2xl p-3 md:p-4 backdrop-blur-xl border bg-gradient-to-br cursor-pointer active:scale-95 transition-all ${colors.bg} ${colors.border} ${colors.shadow}`}
         >
-            <div className="flex items-center gap-3 md:gap-4">
+            <div className="flex flex-col md:flex-col items-center gap-2 md:gap-2 md:text-center">
                 {/* День недели с иконкой */}
-                <div className="text-center min-w-[60px] md:min-w-[70px] p-2 md:p-3 rounded-xl bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-md border border-white/20">
-                    <div className={`text-2xl md:text-3xl mb-1 ${colors.textClass}`}>
-                        {item.risk >= 8 ? '⚠️' : item.risk >= 5 ? '📊' : '✅'}
-                    </div>
-                    <p className="text-xs md:text-sm font-black">{item.day}</p>
-                    <p className="text-[10px] opacity-60 mt-1">{item.label}</p>
+                <div className="text-2xl md:text-2xl">
+                    {item.risk >= 8 ? '⚠️' : item.risk >= 5 ? '📊' : '✅'}
                 </div>
+                <p className="text-xs md:text-sm font-black">{item.day}</p>
+                <p className="text-[10px] md:text-xs opacity-60">{item.label}</p>
                 
                 {/* Риск бар с анимацией */}
-                <div className="flex-1 space-y-1 md:space-y-2">
+                <div className="w-full space-y-1 md:space-y-1.5">
                     <div className="flex items-center justify-between">
-                        <span className={`text-[10px] md:text-xs font-bold ${colors.textClass}`}>РИСК</span>
-                        <span className={`text-base md:text-lg font-black font-mono ${colors.textClass}`}>{item.risk}%</span>
+                        <span className={`text-[9px] md:text-xs font-bold ${colors.textClass}`}>РИСК</span>
+                        <span className={`text-sm md:text-base font-black font-mono ${colors.textClass}`}>{item.risk}%</span>
                     </div>
-                    <div className={`h-5 md:h-6 rounded-full relative overflow-hidden bg-white/10 border border-white/20`}>
+                    <div className={`h-4 md:h-5 rounded-full relative overflow-hidden bg-white/10 border border-white/20`}>
                         <motion.div
                             initial={{width:0}}
                             animate={{width:`${item.risk}%`}}
@@ -263,8 +268,8 @@ const ChartComponent = memo(({ viewData, isBgDark }) => {
                 </div>
 
                 {/* Big Chart */}
-                <ResponsiveContainer width="100%" height={window.innerWidth < 768 ? 280 : 480}>
-                    <AreaChart data={aggregatedData} margin={{top: 10, right: 15, bottom: 20, left: 0}}>
+                <ResponsiveContainer width="100%" height={window.innerWidth < 768 ? 320 : 480}>
+                    <AreaChart data={aggregatedData} margin={{top: 10, right: 15, bottom: 30, left: -10}}>
                         <defs>
                             {/* Beautiful gradient */}
                             <linearGradient id="gradientFill" x1="0" y1="0" x2="0" y2="1">
@@ -292,43 +297,49 @@ const ChartComponent = memo(({ viewData, isBgDark }) => {
                         {/* X Axis - красивые даты */}
                         <XAxis 
                             dataKey="date" 
-                            tick={{fill: isBgDark ? '#9CA3AF' : '#6B7280', fontSize: 12, fontWeight: 500}}
+                            tick={{fill: isBgDark ? '#9CA3AF' : '#6B7280', fontSize: window.innerWidth < 768 ? 11 : 12, fontWeight: 500}}
                             tickLine={false}
                             axisLine={false}
+                            angle={window.innerWidth < 768 ? -45 : 0}
+                            textAnchor={window.innerWidth < 768 ? 'end' : 'middle'}
+                            height={window.innerWidth < 768 ? 60 : 40}
                             formatter={(date) => {
                                 try {
                                     const d = new Date(date);
-                                    return d.toLocaleDateString('ru-RU', {month: 'short', day: 'numeric'});
+                                    return window.innerWidth < 768 
+                                        ? d.toLocaleDateString('ru-RU', {month: 'numeric', day: 'numeric'})
+                                        : d.toLocaleDateString('ru-RU', {month: 'short', day: 'numeric'});
                                 } catch(e) {
                                     return date;
                                 }
                             }}
                         />
                         
-                        {/* Y Axis - с красивымисв делениями */}
+                        {/* Y Axis - с красивыми делениями */}
                         <YAxis 
-                            tick={{fill: isBgDark ? '#9CA3AF' : '#6B7280', fontSize: 12, fontWeight: 500}}
+                            tick={{fill: isBgDark ? '#9CA3AF' : '#6B7280', fontSize: window.innerWidth < 768 ? 11 : 12, fontWeight: 500}}
                             tickLine={false}
                             axisLine={false}
                             domain={[0, 10]}
                             tickFormatter={(value) => value.toFixed(0)}
+                            width={window.innerWidth < 768 ? 30 : 40}
                         />
                         
-                        {/* Beautiful Tooltip - как в кTelegram Wallet */}
+                        {/* Beautiful Tooltip - как в Telegram Wallet */}
                         <Tooltip 
                             contentStyle={{
                                 background: isBgDark ? 'rgba(0,0,0,0.92)' : 'rgba(255,255,255,0.95)',
                                 border: `1.5px solid #3B82F6`,
-                                borderRadius: '24px',
+                                borderRadius: '20px',
                                 boxShadow: isBgDark 
                                     ? '0 20px 60px rgba(59,130,246,0.4), 0 0 40px rgba(59,130,246,0.2)' 
                                     : '0 20px 60px rgba(59,130,246,0.25), 0 0 40px rgba(59,130,246,0.15)',
                                 backdropFilter: 'blur(30px)',
-                                padding: '16px 20px',
+                                padding: '14px 18px',
                                 fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif'
                             }}
-                            itemStyle={{color: '#3B82F6', fontWeight: '600', fontSize: '14px'}}
-                            labelStyle={{color: isBgDark ? '#64b5f6' : '#2196f3', fontSize: '13px', fontWeight: '650'}}
+                            itemStyle={{color: '#3B82F6', fontWeight: '600', fontSize: '13px'}}
+                            labelStyle={{color: isBgDark ? '#64b5f6' : '#2196f3', fontSize: '12px', fontWeight: '650'}}
                             formatter={(value) => [value.toFixed(2), '📊']}
                             labelFormatter={(label) => {
                                 try {
@@ -518,19 +529,20 @@ const ChartPage = ({ theme = 'dark' }) => {
         <motion.div 
             initial={{opacity:0}} 
             animate={{opacity:1}} 
-            className={`min-h-screen pt-16 pb-32 px-2.5 md:px-5 max-w-5xl mx-auto flex flex-col transition-colors duration-300 ${isBgDark ? 'bg-black text-white' : 'bg-[#f2f2f7] text-black'}`}
+            className={`min-h-screen pt-14 sm:pt-16 pb-32 px-3 sm:px-4 md:px-5 max-w-5xl mx-auto flex flex-col transition-colors duration-300 ${isBgDark ? 'bg-black text-white' : 'bg-[#f2f2f7] text-black'}`}
         >
+            <TutorialOverlay pageId="chart" tutorials={tutorialData.chart} theme={theme} />
             
             <motion.div 
                 initial={{opacity:0, y:-20}} 
                 animate={{opacity:1, y:0}} 
-                className="mb-12"
+                className="mb-8 md:mb-12"
             >
-                <h2 className="text-4xl md:text-5xl font-black tracking-tight mb-3">
+                <h2 className="text-3xl sm:text-4xl md:text-5xl font-black tracking-tight mb-2 md:mb-3">
                     Динамика Риска
                 </h2>
-                <p className={`text-base md:text-lg font-medium ${isBgDark ? 'text-gray-400' : 'text-gray-600'}`}>
-                    Индекс риска поведения на выбранный период • Обновляется в реальном времени
+                <p className={`text-sm sm:text-base md:text-lg font-medium ${isBgDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                    Индекс риска на выбранный период • Обновляется в реальном времени
                 </p>
             </motion.div>
 
@@ -544,28 +556,28 @@ const ChartPage = ({ theme = 'dark' }) => {
                 initial={{opacity:0, y:20}}
                 animate={{opacity:1, y:0}}
                 transition={{delay:0.3}}
-                className={`rounded-[36px] p-8 md:p-10 backdrop-blur-3xl border shadow-2xl relative overflow-hidden ${isBgDark ? 'bg-gradient-to-br from-white/8 via-white/5 to-white/3 border-white/15' : 'bg-gradient-to-br from-white/70 via-white/60 to-white/50 border-white/40'}`}
+                className={`rounded-[32px] md:rounded-[40px] p-5 md:p-10 backdrop-blur-3xl border shadow-2xl relative overflow-hidden ${isBgDark ? 'bg-gradient-to-br from-white/8 via-white/5 to-white/3 border-white/15' : 'bg-gradient-to-br from-white/70 via-white/60 to-white/50 border-white/40'}`}
             >
                 {/* Background gradient */}
-                <div className="absolute inset-0 opacity-20 pointer-events-none rounded-[36px]">
+                <div className="absolute inset-0 opacity-20 pointer-events-none rounded-[32px]">
                     <div className="absolute top-0 right-0 w-72 h-72 rounded-full blur-3xl bg-gradient-to-l from-red-500 to-orange-400 opacity-40"></div>
                 </div>
 
                 <div className="relative z-10">
-                    <div className="flex items-center gap-4 md:gap-5 mb-8">
+                    <div className="flex items-center gap-3 md:gap-5 mb-6 md:mb-8">
                         <motion.div 
                             whileHover={{scale:1.05}}
-                            className="p-3 md:p-4 rounded-2xl bg-gradient-to-br from-red-500 to-orange-600 shadow-lg shadow-red-500/40 flex-shrink-0"
+                            className="p-2.5 md:p-4 rounded-2xl bg-gradient-to-br from-red-500 to-orange-600 shadow-lg shadow-red-500/40 flex-shrink-0"
                         >
-                            <AlertTriangle size={28} className="text-white md:w-8 md:h-8"/>
+                            <AlertTriangle size={24} className="text-white md:w-7 md:h-7"/>
                         </motion.div>
                         <div>
-                            <h3 className="text-2xl md:text-3xl font-black">Прогноз</h3>
-                            <p className={`text-sm mt-1 font-medium ${isBgDark ? 'text-gray-400' : 'text-gray-600'}`}>Прогноз на неделю</p>
+                            <h3 className="text-xl sm:text-2xl md:text-3xl font-black">Прогноз</h3>
+                            <p className={`text-xs sm:text-sm mt-0.5 md:mt-1 font-medium ${isBgDark ? 'text-gray-400' : 'text-gray-600'}`}>Прогноз на неделю</p>
                         </div>
                     </div>
 
-                    <div className="grid grid-cols-1 gap-2 md:gap-4 mb-6">
+                    <div className="grid grid-cols-1 sm:grid-cols-7 gap-2 md:gap-3 mb-6 md:mb-8">
                         {forecastData.map((item, i) => <ForecastCard key={item.day} item={item} index={i} getRiskColor={getRiskColor} />)}
                     </div>
 
@@ -573,12 +585,12 @@ const ChartPage = ({ theme = 'dark' }) => {
                         initial={{opacity:0}}
                         animate={{opacity:1}}
                         transition={{delay:0.8}}
-                        className={`p-5 md:p-6 rounded-2xl flex gap-4 bg-gradient-to-br border backdrop-blur-xl ${isBgDark ? 'from-yellow-900/20 to-orange-900/10 border-yellow-500/30 shadow-lg shadow-yellow-500/20' : 'from-yellow-400/20 to-orange-400/10 border-yellow-500/30 shadow-lg shadow-yellow-500/20'}`}
+                        className={`p-4 md:p-6 rounded-2xl md:rounded-3xl flex gap-3 md:gap-4 bg-gradient-to-br border backdrop-blur-xl ${isBgDark ? 'from-yellow-900/20 to-orange-900/10 border-yellow-500/30 shadow-lg shadow-yellow-500/20' : 'from-yellow-400/20 to-orange-400/10 border-yellow-500/30 shadow-lg shadow-yellow-500/20'}`}
                     >
-                        <Shield size={20} className="text-yellow-500 flex-shrink-0 mt-1 drop-shadow-lg md:w-6 md:h-6"/>
+                        <Shield size={20} className="text-yellow-500 flex-shrink-0 mt-0.5 md:mt-1 drop-shadow-lg md:w-6 md:h-6"/>
                         <div>
                             <p className="text-sm md:text-base font-bold">Рекомендация</p>
-                            <p className="text-sm opacity-80 mt-2">В дни высокого риска избегайте скопления людей и оставайтесь дома. Соблюдайте правила безопасности.</p>
+                            <p className="text-xs md:text-sm opacity-80 mt-2">В дни высокого риска избегайте скопления людей и оставайтесь дома. Соблюдайте правила безопасности.</p>
                         </div>
                     </motion.div>
                 </div>

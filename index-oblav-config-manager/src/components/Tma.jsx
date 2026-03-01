@@ -256,6 +256,9 @@ const Tma = () => {
                 setNewWidget({ type: 'info', title: '', text: '', color: 'blue', icon: 'Box', is_wide: 0 });
                 await loadWidgets();
                 setMessage('✅ Виджет добавлен успешно');
+                // 🔔 Уведомляем главное приложение об изменении виджетов
+                window.dispatchEvent(new Event('widgets_updated'));
+                console.log('📢 Sent widgets_updated event to main app');
             } else {
                 setMessage(`❌ ${result.error || 'Ошибка добавления'}`);
             }
@@ -275,6 +278,9 @@ const Tma = () => {
             if (result.ok) {
                 await loadWidgets();
                 setMessage('✅ Виджет удалён успешно');
+                // 🔔 Уведомляем главное приложение об изменении виджетов
+                window.dispatchEvent(new Event('widgets_updated'));
+                console.log('📢 Sent widgets_updated event to main app');
             } else {
                 setMessage(`❌ ${result.error || 'Ошибка удаления'}`);
             }

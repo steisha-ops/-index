@@ -2,8 +2,10 @@ import { useState, useRef } from 'react';
 import { api } from '../lib/api';
 import { Camera, Send, ShieldCheck, XCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import TutorialOverlay from '../components/TutorialOverlay';
+import { tutorialData } from '../lib/tutorialData';
 
-const ReportPage = () => {
+const ReportPage = ({ theme = 'dark' }) => {
     const [text, setText] = useState('');
     const [image, setImage] = useState(null);
     const [sent, setSent] = useState(false);
@@ -38,6 +40,7 @@ const ReportPage = () => {
 
     return (
         <div className="min-h-screen bg-[var(--bg-main)] pt-16 px-6 font-sans text-[var(--text-primary)] pb-40">
+            <TutorialOverlay pageId="report" tutorials={tutorialData.report} theme={theme} />
             <div className="max-w-md mx-auto">
                 <h1 className="text-3xl font-black mb-2">СООБЩИТЬ ОБ ОБЛАВЕ</h1>
                 <p className="text-[var(--text-dim)] text-sm mb-8 flex items-center gap-2"><ShieldCheck size={16} className="text-green-500"/> Ваш отчет полностью анонимен</p>

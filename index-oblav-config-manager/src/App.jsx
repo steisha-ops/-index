@@ -67,7 +67,14 @@ const ConfigWindow = ({ onLogout }) => {
     const [editingImageUrl, setEditingImageUrl] = useState('');
     const [regionDropdownOpen, setRegionDropdownOpen] = useState(false);
 
-    useEffect(() => { refresh(); }, []);
+    useEffect(() => { 
+        try {
+            refresh();
+        } catch(e) {
+            console.error('❌ Ошибка при загрузке:', e);
+            showMessage('❌ Ошибка при загрузке данных', true);
+        }
+    }, []);
 
     useEffect(() => {
         const handleClickOutside = (e) => {
@@ -96,19 +103,21 @@ const ConfigWindow = ({ onLogout }) => {
                 const target = selectedRegionId || rList[0].id;
                 loadRegionData(target);
             }
+            
             const btnsList = await api.getButtons() || [];
-            if (!btnsList.error) setButtons(btnsList);
+            if (!btnsList.error && Array.isArray(btnsList)) setButtons(btnsList);
             
             const popupsList = await api.getPopups() || [];
-            if (!popupsList.error) setPopups(popupsList);
+            if (!popupsList.error && Array.isArray(popupsList)) setPopups(popupsList);
             
             const pagesList = await api.getPages() || [];
-            if (!pagesList.error) setPages(pagesList);
+            if (!pagesList.error && Array.isArray(pagesList)) setPages(pagesList);
             
             const markersList = await api.getMarkers() || [];
-            if (!markersList.error) setMarkers(markersList);
+            if (!markersList.error && Array.isArray(markersList)) setMarkers(markersList);
         } catch(e) {
-            showMessage(`❌ Ошибка загрузки данных: ${e.message}`, true);
+            console.error('❌ Ошибка в refresh:', e);
+            showMessage('❌ Ошибка: ' + e.message, true);
         } finally {
             setLoading(false);
         }
@@ -508,6 +517,7 @@ const ConfigWindow = ({ onLogout }) => {
 
     const currentRegionName = regions.find(r => r.id == selectedRegionId)?.name || '...';
 
+    // Дефолтный рендер если что-то пошло не так
     return (
         <div className="w-full max-w-7xl h-[90vh] bg-[#111] border border-[#333] rounded-xl flex flex-col shadow-2xl overflow-hidden">
             {message && (
@@ -519,78 +529,16 @@ const ConfigWindow = ({ onLogout }) => {
                     {message}
                 </div>
             )}
+            
             <div className="h-16 bg-[#1a1a1a] border-b border-[#333] flex items-center px-6 shrink-0 justify-between relative z-40">
                 <div className="font-bold text-gray-200 text-lg flex items-center gap-2"><Monitor className="text-blue-500"/> Config Manager V29</div>
-                <div className="flex gap-2 items-center relative">
-                    {/* Custom Dropdown для регионов */}
-                    <div className="relative" data-dropdown="regions">
-                        <button 
-                            onClick={() => setRegionDropdownOpen(!regionDropdownOpen)}
-                            className="bg-[#333] hover:bg-[#444] text-white rounded px-3 py-1 outline-none text-sm border border-[#444] transition z-50 relative"
-                        >
-                            {regions.find(r => r.id == selectedRegionId)?.name || 'Выберите регион'} ▼
-                        </button>
-                        
-                        {regionDropdownOpen && (
-                            <>
-                                {/* Backdrop */}
-                                <div 
-                                    className="fixed inset-0 bg-black/60 z-[99] flex items-center justify-center"
-                                    onClick={() => setRegionDropdownOpen(false)}
-                                >
-                                    {/* Модальное окно - в центре экрана */}
-                                    <div 
-                                        className="bg-[#1a1a1a] rounded-2xl border border-pink-500/30 shadow-2xl z-[100] w-96 max-h-[80vh] overflow-hidden flex flex-col"
-                                        onClick={(e) => e.stopPropagation()}
-                                    >
-                                        {/* Header */}
-                                        <div className="h-14 bg-gradient-to-r from-pink-600/20 to-blue-600/20 border-b border-[#444] flex items-center justify-between px-5 flex-shrink-0">
-                                            <h3 className="text-base font-bold text-pink-400">📍 Выберите регион</h3>
-                                            <button
-                                                onClick={() => setRegionDropdownOpen(false)}
-                                                className="text-gray-400 hover:text-white transition text-xl"
-                                            >
-                                                ✕
-                                            </button>
-                                        </div>
-                                        
-                                        {/* Список регионов */}
-                                        <div className="flex-1 overflow-y-auto">
-                                            {regions.map((r, idx) => (
-                                                <button
-                                                    key={r.id}
-                                                    onClick={() => {
-                                                        loadRegionData(r.id);
-                                                        setRegionDropdownOpen(false);
-                                                    }}
-                                                    className={`w-full text-left px-5 py-3 transition border-b border-[#333] hover:bg-[#222] flex items-center gap-3 ${
-                                                        selectedRegionId == r.id 
-                                                            ? 'bg-pink-600/20 text-pink-300 font-bold border-l-4 border-l-pink-500' 
-                                                            : 'text-gray-300'
-                                                    }`}
-                                                >
-                                                    <span className="text-lg">{idx === 0 ? '🏙️' : idx === 1 ? '🌆' : '🗺️'}</span>
-                                                    <span className="flex-1">{r.name}</span>
-                                                    {selectedRegionId == r.id && <span className="text-pink-400 text-lg">✓</span>}
-                                                </button>
-                                            ))}
-                                        </div>
-                                        
-                                        {/* Footer */}
-                                        <div className="h-11 bg-[#111] border-t border-[#444] flex items-center px-5 flex-shrink-0">
-                                            <span className="text-xs text-gray-500">Всего регионов: {regions.length}</span>
-                                        </div>
-                                    </div>
-                                </div>
-                            </>
-                        )}
-                    </div>
-                    
-                    <button onClick={refresh} disabled={loading} className="bg-blue-600/30 text-blue-400 px-3 py-1 rounded border border-blue-500/50 hover:bg-blue-600/50 text-xs font-bold transition disabled:opacity-50 relative z-30"><RefreshCw size={14}/></button>
-                    <button onClick={onLogout} className="bg-red-600/30 text-red-400 px-3 py-1 rounded border border-red-500/50 hover:bg-red-600/50 text-xs font-bold transition relative z-30">Выход</button>
+                <div className="flex gap-2 items-center">
+                    <button onClick={refresh} disabled={loading} className="bg-blue-600/30 text-blue-400 px-3 py-1 rounded border border-blue-500/50 hover:bg-blue-600/50 text-xs font-bold transition disabled:opacity-50"><RefreshCw size={14}/></button>
+                    <button onClick={onLogout} className="bg-red-600/30 text-red-400 px-3 py-1 rounded border border-red-500/50 hover:bg-red-600/50 text-xs font-bold transition">Выход</button>
                 </div>
             </div>
 
+            {/* Основной контент */}
             <div className="flex flex-1 overflow-hidden">
                 <div className={`w-64 bg-[#161616] border-r border-[#333] p-4 flex flex-col gap-2 overflow-y-auto transition-all duration-300 ${
                     tab === 'conscience' ? 'hidden' : ''
