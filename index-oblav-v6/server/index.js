@@ -11,7 +11,7 @@ const app = express();
 const PORT = 3001;
 const saltRounds = 10;
 
-// Улучшенная компрессия + кэширование
+// Улучшеннаяh компрессия + кэшированиеn
 app.use(compression({ 
     level: 9, 
     threshold: 512,
@@ -46,7 +46,7 @@ app.use(cors({
     maxAge: 86400
 }));
 
-// ===== SECURITY =====
+// !SESURITE!
 const validateInput = (val, type = 'string', min = 0, max = Infinity) => {
     if (type === 'number') {
         const n = parseFloat(val);
@@ -76,10 +76,10 @@ app.use((req, res, next) => {
     next();
 });
 
-// ===== CACHE =====
+// кэш
 const dataCache = new Map();
 const CACHE_TTL_MS = 5000; // 5 seconds для обычных данных
-const EXTENDED_CACHE_TTL_MS = 2000; // 2 seconds для region_data (очень короткий чтобы избежать рассинхронизации)
+const EXTENDED_CACHE_TTL_MS = 2000; // 2 seconds для region_data очень короткий чтобы избежать рассинхронизации
 const SHORT_CACHE_TTL_MS = 1000; // 1 second для region_data при изменении
 
 const getCached = (key) => {
@@ -100,9 +100,9 @@ const setCached = (key, data, ttl = CACHE_TTL_MS) => {
 const dbPath = join(dirname(fileURLToPath(import.meta.url)), 'database.sqlite');
 const db = new sqlite3.Database(dbPath, (err) => {
     if (err) { 
-        console.error("❌ DB Error:", err); 
+        console.error("FAIL DB Error:", err); 
     } else { 
-        console.log("✅ DB Connected.");
+        console.log("OKEY DB Connected.");
         initDb();
     }
 });
@@ -162,12 +162,12 @@ function initDb() {
 
             // Автор
             db.run("INSERT INTO authors (name, handle, avatar, bio, is_verified) VALUES (?,?,?,?,?)", ['Admin', 'admin', 'https://api.dicebear.com/7.x/avataaars/svg?seed=Admin', 'System Admin', 1], function() {
-                console.log("✅ Author 'Admin' created with ID:", this.lastID);
+                console.log("OKEY Author 'Admin' created with ID:", this.lastID);
             });
             
             // Новости
             db.run("INSERT INTO news (author_id, text, date, tags, is_highlighted) VALUES (?,?,?,?,?)", [1, 'Система запущена.', new Date().toISOString(), 'info', 1], function() {
-                console.log("✅ News created with ID:", this.lastID);
+                console.log("OKEY News created with ID:", this.lastID);
             });
 
             // Виджеты и Кнопки
@@ -182,14 +182,14 @@ function initDb() {
             conscience.run('За мир', 'Мы работаем над тем, чтобы каждый человек смог выбрать достойный путь', '🤝', null, 2, 1);
             conscience.finalize();
 
-            console.log("✅ Seeding completed.");
+            console.log("OKEY Seeding completed.");
         } else {
-            console.log("✅ Database already has data (regions count:", r?.c, ")");
+            console.log("OKEY Database already has data (regions count:", r?.c, ")");
         }
     });
 }
 
-// --- API ROUTES HELPER ---
+//  API ROUTES HELPER 
 const get = (sql, cacheKey) => (req, res) => {
     if (cacheKey) {
         const cached = getCached(cacheKey);
@@ -202,7 +202,7 @@ const get = (sql, cacheKey) => (req, res) => {
     });
 };
 
-// --- API ROUTES --
+//  API ROUTES 
 
 // READ
 app.get('/api/regions', (req, res) => {
@@ -262,7 +262,7 @@ app.get('/api/region_data/:id', (req, res) => {
             // Use LIMIT for large datasets - только последние 90 дней для быстрой загрузки
             db.all("SELECT date, value FROM history WHERE region_id=? ORDER BY date DESC LIMIT 90", [regionId], (e2, historyData) => {
                 if (e2) {
-                    console.log(`❌ [ERROR] History query failed:`, e2);
+                    console.log(`FAIL [ERROR] History query failed:`, e2);
                     res.json({region, history: []});
                     return;
                 }
@@ -272,12 +272,12 @@ app.get('/api/region_data/:id', (req, res) => {
                     history: (historyData || []).reverse(),
                     _timestamp: Date.now()  // Добавляем timestamp для отслеживания версии данных
                 };
-                console.log(`✅ [DATA LOADED] region_${regionId} | index=${region.current_index} | history=${historyData?.length || 0} items | @${new Date().toISOString()}`);
+                console.log(`OKEY [DATA LOADED] region_${regionId} | index=${region.current_index} | history=${historyData?.length || 0} items | @${new Date().toISOString()}`);
                 res.json(responseData);
             });
         });
     } catch(e) {
-        console.log(`❌ [ERROR]`, e.message);
+        console.log(`FAIL [ERROR]`, e.message);
         res.status(400).json({error: e.message});
     }
 });

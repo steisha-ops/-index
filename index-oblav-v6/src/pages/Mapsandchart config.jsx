@@ -79,7 +79,7 @@ const Admin = () => {
         if(val && !isNaN(parseFloat(val))) {
             api.updateHistory(date, val).then(() => refresh()).catch(err => alert('❌ Ошибка: ' + err));
         } else if(val) {
-            alert('❌ Введите число');
+            alert('❌ Введите число❌❌❌❌❌');
         }
     };
     

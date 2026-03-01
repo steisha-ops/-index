@@ -7,7 +7,7 @@ import IntroOnboarding from '../components/IntroOnboarding';
 import TutorialOverlay from '../components/TutorialOverlay';
 import { tutorialData } from '../lib/tutorialData';
 
-// --- WIDGETS ---
+// WIDGETS
 const Icons = { Zap, Info, Shield: ShieldAlert, Link, Star, AlertTriangle, Clock };
 
 const StandardWidget = memo(({ w, onClick, className }) => {
@@ -59,7 +59,7 @@ const ClockWidget = memo(({ w, className }) => {
 });
 ClockWidget.displayName = 'ClockWidget';
 
-// --- PAGE COMPONENTS ---
+//  PAGE COMPONENTS ГОТОВО
 
 const MenuButton = memo(({ b, onClick, onHover }) => {
     const isUrl = b.icon && (b.icon.startsWith('http') || b.icon.startsWith('data:'));
@@ -104,7 +104,7 @@ const Home = ({ theme, toggleTheme, onOpenConscienceCall, showRegionModal, setSh
     setShowIntro(isFirstVisit);
   }, []);
 
-  // ✨ Function to reload widgets (called when admin changes widgets)
+  // ✨ ФФФФФФФФFunction to reload widgets (called when admin changes widgets)
   const reloadWidgets = useCallback(async () => {
     console.log('🔄 Reloading widgets...');
     try {
@@ -126,7 +126,7 @@ const Home = ({ theme, toggleTheme, onOpenConscienceCall, showRegionModal, setSh
   }, []);
 
   useEffect(() => {
-    // Listen for widget updates from config-manager
+    // Listen for widget updates from config-manager ГОТОВО
     window.addEventListener('widgets_updated', reloadWidgets);
     return () => window.removeEventListener('widgets_updated', reloadWidgets);
   }, [reloadWidgets]);
@@ -158,12 +158,12 @@ const Home = ({ theme, toggleTheme, onOpenConscienceCall, showRegionModal, setSh
                 // Load saved widget order
                 const userId = localStorage.getItem('user_id') || 'default';
                 api.getWidgetLayout(userId).then(res => {
-                    console.log('🎯 Widget layout result:', res);
+                    console.log('🎯🎯🎯🎯🎯 Widget layout result:', res);
                     if (res?.order && Array.isArray(res.order)) {
                         console.log('✅ Using saved order:', res.order);
                         setWidgetOrder(res.order);
                     } else {
-                        console.log('📝 Creating new order from widgets');
+                        console.log('📝ОРДЕР ТУ ВИДЖЕТ📝  Creating new order from widgets');
                         const newOrder = w.map(wid => wid.id);
                         console.log('   New order:', newOrder);
                         setWidgetOrder(newOrder);
@@ -175,11 +175,11 @@ const Home = ({ theme, toggleTheme, onOpenConscienceCall, showRegionModal, setSh
             });
             
             api.getPopups().then(p => {
-                console.log('💬 Popups loaded:', p?.length);
+                console.log('💬ПОПУП ЗАГРУЗКА Popups loaded:', p?.length);
                 setPopups(p || []);
             });
             api.getAuthors().then(a => {
-                console.log('👥 Authors loaded:', a?.length);
+                console.log('👥АУТОРРРР Authors loaded:', a?.length);
                 setAuthors(a || []);
             });
         } catch(e){ console.error("Error loading initial data:", e); }
@@ -238,7 +238,7 @@ const Home = ({ theme, toggleTheme, onOpenConscienceCall, showRegionModal, setSh
         setIsEditingWidgets(false);
       }
     } catch(e) {
-      console.error('❌ Failed to save widget layout:', e);
+      console.error('❌❌❌❌❌❌❌❌❌❌ Failed to save widget layout:', e);
     }
   }, [widgetOrder]);
 
@@ -424,7 +424,7 @@ const Home = ({ theme, toggleTheme, onOpenConscienceCall, showRegionModal, setSh
                 return renderWidget(w);
               })
             : widgets.map(w => {
-                console.log('🎨 Rendering widget:', w.id, w.title);
+                console.log('🎨ДРАУУ ВИДЖЕТ🎨 Rendering widget:', w.id, w.title);
                 if (isEditingWidgets) {
                   return (
                     <motion.div

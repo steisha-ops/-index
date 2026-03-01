@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# 🚀 Script to start all apps at once
+
 
 echo "======================================"
 echo "🚀 Starting Remind System"
@@ -9,12 +9,12 @@ echo ""
 echo "⚠️  This will open 5 new terminals..."
 echo ""
 
-# Colors
+
 GREEN='\033[0;32m'
 BLUE='\033[0;34m'
-NC='\033[0m' # No Color
+NC='\033[0m' 
 
-# Function to run command in new terminal (macOS/Linux compatible)
+
 run_in_terminal() {
     local title=$1
     local command=$2
@@ -24,13 +24,13 @@ run_in_terminal() {
         # macOS
         osascript -e "tell application \"Terminal\" to do script \"cd /workspaces/remind && $command\""
     else
-        # Linux - try gnome-terminal or xterm
+        
         if command -v gnome-terminal &> /dev/null; then
             gnome-terminal --title="$title" -- bash -c "cd /workspaces/remind && $command; exec bash"
         elif command -v xterm &> /dev/null; then
             xterm -title "$title" -e "cd /workspaces/remind && $command" &
         else
-            # Fallback - just print instructions
+            
             echo -e "${BLUE}[Manual]${NC} Start in terminal: $command"
             return 1
         fi
